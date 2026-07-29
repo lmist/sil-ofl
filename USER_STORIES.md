@@ -26,7 +26,8 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 10. As a visitor, I can search by owner login.
 11. As a visitor, I can search by repository full name.
 12. As a fast typist, only the latest debounced search becomes current.
-13. As a visitor, leading and trailing whitespace is normalized predictably.
+13. As a visitor, leading and trailing whitespace is normalized on commit
+    without deleting a paused separator while I type a multi-word search.
 14. As a visitor, clearing search returns to the unfiltered result set and first
     page.
 15. As a visitor, Unicode, punctuation, quotes, wildcard characters, and very
@@ -81,7 +82,8 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 43. As a visitor, I can return to the previous page using the local cursor
     history.
 44. As a visitor, Next and Previous are unavailable when their destination is
-    not valid or is still resolving.
+    not valid or is still resolving, including while a new search is
+    debouncing.
 45. As a visitor, rapid repeated activation cannot skip or duplicate a page.
 46. As a visitor, page number, visible rows, cursor URL, and button availability
     always describe the same page.
@@ -114,7 +116,8 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 60. As a keyboard user, native row controls retain valid semantics, focus,
     Enter activation, and advertised Space activation.
 61. As a screen-reader user, the result collection has a valid name, count, and
-    selection model without unsupported ARIA.
+    selection model without unsupported ARIA, and each control's accessible
+    name contains its visible label.
 62. As a narrow-screen visitor, list content stays inside the document and dense
     columns scroll inside their own region.
 
@@ -123,8 +126,9 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 63. As a visitor, hovering or focusing a row can preview its face without
     corrupting the current selection.
 64. As a visitor, I can select a font with pointer, Enter, or Space.
-65. As a visitor, the selected row, URL, specimen, and use panel all identify the
-    same font.
+65. As a visitor, the selected row, URL, loaded face, specimen, and use panel
+    all identify the same font record revision, including after a same-ID
+    metadata refresh.
 66. As a visitor, I can deselect according to the documented reset behavior.
 67. As a visitor, refreshing a valid selected-font URL restores a coherent
     selection even when its row is off the current page.
@@ -219,3 +223,24 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
      public queries.
 118. As a developer outside production, I can use GraphiQL without changing
      production security or cache behavior.
+119. As an API consumer, executed operations return sanitized JSON or a safe
+     private `406` when the request cannot negotiate a JSON GraphQL response.
+120. As an API consumer, quoted media parameters, quality exclusions,
+     specificity, casing, and valid wildcards are negotiated consistently.
+121. As an API consumer, malformed media ranges cannot be mistaken for a JSON
+     representation.
+122. As a developer outside production, GraphiQL appears only when a parsed
+     `text/html` range is genuinely acceptable.
+123. As an API consumer, ambiguous combined content types and unsupported
+     request charsets fail safely before body parsing.
+124. As an API consumer, representation negotiation also governs body-limit and
+     malformed-request failures.
+125. As a visitor, one pointer selection does not start duplicate face work as
+     hover, focus, and click occur in sequence.
+126. As a visitor, stopping a request during retry backoff prevents its
+     superseded retry lifecycle from joining a current same-font request.
+127. As a developer outside production, GraphiQL is selected only when its
+     acceptable HTML representation does not lose to a higher-quality JSON
+     preference.
+128. As a visitor, a failed cached search key cannot expose stale error UI
+     while it is only a disabled debounce draft.

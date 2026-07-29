@@ -124,7 +124,14 @@ are loaded with `FontFace` from the record’s CDN URL with raw URL fallback.
 
 ## `/api/graphql` surface
 
-The API is query-only.
+The API is query-only. Executed operations negotiate
+`application/graphql-response+json` or `application/json`; unsupported response
+media receive a private safe `406`, including on early request failures.
+Negotiation uses parsed media ranges with quoted-value, quality, and specificity
+handling. POST accepts one supported UTF-8 content type; ambiguous combined
+types or unsupported charsets receive a private safe `415`. The HTML
+development GraphiQL entry point is handled separately before operation
+execution and requires an acceptable parsed `text/html` range.
 
 | Query | Purpose | Main inputs |
 | --- | --- | --- |

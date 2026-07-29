@@ -48,15 +48,21 @@ Metadata, computed CSS, snippets, and download links MUST agree.
 
 A superseded font request, face load, search, or navigation MUST NOT commit
 after a newer request for the same surface. Aborted work MUST remain
-observationally inert.
+observationally inert, including during client retry backoff. Only the exact
+active catalog query MAY revise selected metadata; inactive, disabled, cached,
+or draft-query data and events MUST be inert across every selected surface.
 
 ## Filters, sorting, and URL state
 
 ### INV-FILTER-1 — Input and request agree
 
-Every displayed filter value MUST equal the normalized value used in the query.
-Invalid, ambiguous, non-finite, negative, fractional, or out-of-range numeric
-input MUST be rejected or normalized visibly before it becomes active.
+Every committed displayed filter value MUST equal the normalized value used in
+the query. A focused search control MAY retain outer whitespace as a transient
+edit draft so a paused word separator is not deleted; that draft MUST only
+reach the URL, query key, and GraphQL request in normalized form and MUST
+normalize visibly on blur or explicit commit. Invalid, ambiguous, non-finite,
+negative, fractional, or out-of-range numeric input MUST be rejected or
+normalized visibly before it becomes active.
 
 ### INV-FILTER-2 — Actions use current state
 
@@ -214,13 +220,39 @@ root connections MUST have explicit server-enforced limits. An over-budget
 request MUST be rejected before resolver or database work and MUST receive
 private `no-store` caching.
 
+### INV-GQL-8 — Executed operations return sanitized JSON
+
+The query-only API MUST execute operations through a JSON result processor.
+Requests that cannot negotiate `application/graphql-response+json` or
+`application/json` MUST receive a safe private `406` response before execution.
+Negotiation MUST parse quoted values and valid media-range grammar, honor valid
+unquoted quality weights in any parameter position, retain every non-quality
+parameter's specificity, and recognize only SP/HTAB as HTTP optional
+whitespace. RFC-valid empty parameter slots MUST remain no-ops. The policy MUST
+apply to early request failures as well as execution results. SSE, multipart,
+invalid wildcard, whitespace, or quality parameters MUST NOT bypass error
+sanitization. Development GraphiQL MAY serve HTML before an operation is
+submitted only for a genuinely acceptable parsed `text/html` range, and its
+quality MUST NOT lose to an acceptable JSON representation. Its declared
+`Content-Type` parameters MUST match the representation used during
+negotiation.
+
+### INV-GQL-9 — Request media types are unambiguous UTF-8
+
+GraphQL POST requests MUST declare one supported media type and UTF-8-compatible
+encoding. Combined or conflicting `Content-Type` values and unsupported
+charsets MUST receive a safe private `415` before body parsing or execution.
+Valid media-type casing, optional whitespace, and quoted UTF-8 charset spelling
+MUST retain equivalent behavior.
+
 ## Accessibility and interaction
 
 ### INV-A11Y-1 — Valid semantics
 
 Native interactive elements MUST retain valid semantics. ARIA roles and
 attributes MUST be supported by the element or composite widget on which they
-appear. List and dense modes MUST pass automated ARIA validation.
+appear. An interactive control's accessible name MUST contain its visible
+label. List and dense modes MUST pass automated ARIA validation.
 
 ### INV-A11Y-2 — Keyboard parity
 
@@ -271,7 +303,8 @@ origins. New-tab links MUST prevent opener access.
 
 Font loading MUST use the selected record's approved CDN URL and may fall back
 once to its approved raw URL. Failure MUST stop with a recoverable state; it
-MUST NOT loop or silently load an unrelated face.
+MUST NOT loop or silently load an unrelated face. Equivalent hover, focus, and
+selection events for the current face MUST NOT start duplicate face work.
 
 ## Repository and verification
 
@@ -293,3 +326,10 @@ Parallel workspaces MUST not share a fixed development port.
 `bun run build` MUST pass before integration. A bug fix MUST include a
 regression test that failed against the faulty behavior and passes with the
 fix.
+
+### INV-REPO-4 — Browser tests use public semantics
+
+Browser tests MUST locate interactive behavior through accessible roles and
+names or an explicitly documented public DOM contract. Tests MUST NOT require
+an overriding accessible label that conflicts with visible content, and
+screen-reader-only instructions MUST NOT be mistaken for application identity.

@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SIL OFL Fonts — UI Test Report</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #000;
+        --fg: #fff;
+        --muted: #a6a6a6;
+        --line: #292929;
+        --accent: #ff4b1f;
+        --ok: #75d59a;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-size: 16px;
+        line-height: 1.55;
+      }
+
+      main {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+        padding: clamp(24px, 5vw, 64px);
+      }
+
+      header {
+        display: grid;
+        gap: 18px;
+        padding-bottom: 36px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 900px;
+        font-size: clamp(2.7rem, 8vw, 7rem);
+        font-weight: 500;
+        letter-spacing: -0.055em;
+        line-height: 0.94;
+      }
+
+      h2 {
+        margin-bottom: 18px;
+        font-size: 1.1rem;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+      }
+
+      .eyebrow,
+      th {
+        color: var(--muted);
+        font-size: 0.75rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .lede {
+        max-width: 760px;
+        color: var(--muted);
+      }
+
+      .status {
+        display: inline-flex;
+        width: fit-content;
+        min-height: 28px;
+        align-items: center;
+        gap: 8px;
+        color: var(--ok);
+        font-size: 0.875rem;
+      }
+
+      .status::before {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+
+      section {
+        padding: 36px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1px;
+        background: var(--line);
+        border: 1px solid var(--line);
+      }
+
+      .metric {
+        min-width: 0;
+        padding: 22px;
+        background: var(--bg);
+      }
+
+      .metric strong {
+        display: block;
+        font-size: clamp(1.8rem, 4vw, 3rem);
+        font-weight: 500;
+        letter-spacing: -0.04em;
+        line-height: 1;
+      }
+
+      .metric span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 12px 10px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th:first-child,
+      td:first-child {
+        padding-left: 0;
+      }
+
+      th:last-child,
+      td:last-child {
+        padding-right: 0;
+        text-align: right;
+      }
+
+      .pass {
+        color: var(--ok);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 28px;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 1.15rem;
+        color: var(--muted);
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      code {
+        color: var(--fg);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9em;
+      }
+
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        padding-top: 22px;
+      }
+
+      a {
+        color: var(--fg);
+        text-underline-offset: 4px;
+      }
+
+      a:hover {
+        color: var(--accent);
+      }
+
+      .note {
+        max-width: 820px;
+        color: var(--muted);
+        font-size: 0.875rem;
+      }
+
+      @media (max-width: 720px) {
+        .metrics,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        th:nth-child(2),
+        td:nth-child(2) {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">SIL OFL Fonts · Catalog quality</p>
+        <h1>Complete UI verification</h1>
+        <p class="lede">
+          The catalog route, every interactive control, recovery state,
+          selected-font surface, responsive boundary, and GraphQL-backed
+          transition are covered by binding regressions.
+        </p>
+        <p class="status">Audited scope passes all required gates</p>
+      </header>
+
+      <section aria-labelledby="summary-heading">
+        <h2 id="summary-heading">Final result</h2>
+        <div class="metrics">
+          <div class="metric">
+            <strong>72</strong>
+            <span>isolated browser scenarios passed</span>
+          </div>
+          <div class="metric">
+            <strong>184</strong>
+            <span>unit and contract tests passed</span>
+          </div>
+          <div class="metric">
+            <strong>88</strong>
+            <span>reproduced defects fixed</span>
+          </div>
+          <div class="metric">
+            <strong>0</strong>
+            <span>open defects in the audited scope</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="coverage-heading">
+        <h2 id="coverage-heading">Browser coverage</h2>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Suite</th>
+              <th scope="col">Coverage</th>
+              <th scope="col">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Accessibility and layout</td>
+              <td>
+                semantics, announcements, contrast, targets, 320px layout,
+                recovery
+              </td>
+              <td class="pass">24 passed</td>
+            </tr>
+            <tr>
+              <td>Catalog state</td>
+              <td>
+                filters, URL, history, selection, races, pagination, errors
+              </td>
+              <td class="pass">27 passed</td>
+            </tr>
+            <tr>
+              <td>Core flows and performance</td>
+              <td>load, search, filter, page, specimen, interaction budgets</td>
+              <td class="pass">7 passed</td>
+            </tr>
+            <tr>
+              <td>Specimen and export</td>
+              <td>font identity, lifecycle, CSS safety, clipboard, focus</td>
+              <td class="pass">13 passed</td>
+            </tr>
+            <tr>
+              <td>Catalog URL synchronization</td>
+              <td>one canonical application write per state transition</td>
+              <td class="pass">1 passed</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section aria-labelledby="invariants-heading">
+        <h2 id="invariants-heading">Binding outcomes</h2>
+        <div class="grid">
+          <ul>
+            <li>
+              Selected ID, URL, row, specimen, registered face, and export
+              panel remain one identity.
+            </li>
+            <li>
+              Search, owner, filters, sorting, pagination, and browser history
+              converge on the same request state.
+            </li>
+            <li>
+              Loading, retained data, empty results, errors, retries, and
+              resets remain explicit and recoverable.
+            </li>
+            <li>
+              Only approved OFL records and approved HTTPS font targets reach
+              the public catalog.
+            </li>
+          </ul>
+          <ul>
+            <li>
+              Native roles, row headers, virtual positions, live status,
+              keyboard activation, and visible selection markers are present.
+            </li>
+            <li>
+              Long metadata stays within a 320px document; compact controls
+              retain 24px targets and sufficient contrast.
+            </li>
+            <li>
+              GraphQL input, cursor, complexity, CORS, cache, scalar, and error
+              boundaries are closed and safely reported.
+            </li>
+            <li>
+              Font and clipboard cleanup failures cannot corrupt subsequent
+              interactions or expose internal details.
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section aria-labelledby="live-heading">
+        <h2 id="live-heading">Live data check</h2>
+        <p class="note">
+          The database-backed smoke returned healthy service status, 32,937
+          public font files, accepted OFL licenses, HTTPS font targets, the
+          published ID scalar shapes, and <code>private, no-store</code> for
+          POST responses. Catalog counts are a point-in-time observation and
+          may change when the source data is refreshed.
+        </p>
+      </section>
+
+      <section aria-labelledby="records-heading">
+        <h2 id="records-heading">Evidence</h2>
+        <p class="note">
+          The issue register contains 89 findings: 88 reproduced defects with
+          retained regressions and one Space-activation concern closed as not
+          reproducible after characterization.
+        </p>
+        <nav aria-label="Verification documents">
+          <a href="QA_REPORT.md">Quality report</a>
+          <a href="SITE_MAP.md">Site map</a>
+          <a href="USER_STORIES.md">User stories</a>
+          <a href="INVARIANTS.md">Invariants</a>
+          <a href=".beads/issues.jsonl">Issue record</a>
+        </nav>
+      </section>
+    </main>
+  </body>
+</html>

@@ -51,13 +51,13 @@ intentionally replace the current history entry; CDN-to-raw font fallback is a
 designed recovery path; and a one-off 450 ms live filter response remains
 inside the application’s existing budget.
 
-## Confirmed defect register
+## Issue register
 
 The Beads issue record in `.beads/issues.jsonl` contains the full reproduction,
 expected and actual behavior, impact, acceptance criteria, assignment, and
-status for every defect.
+status for every finding.
 
-| ID | Defect | Evidence seam | Required regression |
+| ID | Finding | Evidence seam | Required regression |
 | --- | --- | --- | --- |
 | `silofl-pzs.1` | baseline lint gate is red | `bun run lint` | lint command exits cleanly |
 | `silofl-pzs.2` | long active-filter values overflow the document | search/owner at 500 characters | viewport/document-width assertion |
@@ -103,18 +103,70 @@ status for every defect.
 | `silofl-pzs.42` | malformed GraphQL GET variables receive an internal-error status | malformed and non-object `variables` parameters | sanitized HTTP 400 before resolver work |
 | `silofl-pzs.43` | specimen retry clears failure before recovery and is not genuinely tested | fail-once face actor on one machine | same-actor retry with error retained until success |
 | `silofl-pzs.44` | delayed clipboard fallback steals or loses current focus | rejected pending copy after focus move or panel removal | preserve the live pre-fallback focus target |
+| `silofl-pzs.45` | deep-link font lookup exposes internal GraphQL request details | rejected `Font` detail request | fixed safe detail error and retry |
+| `silofl-pzs.46` | catalog render boundary exposes internal exception text | malformed dense row | fixed safe boundary copy |
+| `silofl-pzs.47` | NUL and ill-formed UTF-16 reach PostgreSQL | malformed database-bound text | pre-SQL `BAD_USER_INPUT` matrix |
+| `silofl-pzs.48` | fragment DAG analysis expands exponentially | repeatedly spread fragment graph | bounded selected-operation traversal |
+| `silofl-pzs.49` | negative stars and unsupported formats reach SQL | invalid filter variables | closed-domain input rejection |
+| `silofl-pzs.50` | coercion errors echo submitted variable values | secret-shaped invalid scalar values | fixed safe coercion message |
+| `silofl-pzs.51` | malformed extensions and form variables become HTTP 500 | invalid serialized request parameters | sanitized HTTP 400 before execution |
+| `silofl-pzs.52` | catalog boundary retry re-renders the same cached fault | fail-once dense response | retry-triggered refetch |
+| `silofl-pzs.53` | mount-only guard drops subscriptions after a React reconnect | setup/cleanup/setup contract | symmetric mount-effect regression |
+| `silofl-pzs.54` | loaded faces collide and accumulate | sequential same-family selections | one registered face and clear cleanup |
+| `silofl-pzs.55` | malformed closed URL values remain hidden active state | invalid format, sort, and font parameters | canonical visible defaults |
+| `silofl-pzs.56` | pagination Reset retains selected identity | selected malformed-cursor state | atomic cursor and identity reset |
+| `silofl-pzs.57` | missing family metadata produces divergent identities | null-family font | one readable display, face, and export identity |
+| `silofl-pzs.58` | specimen family is interpolated into CSS without escaping | quotes, newline, and backslash in family | inert CSSOM family assertion |
+| `silofl-pzs.59` | whitespace differs across controls, URL, and request | padded search and owner input | control/URL/GraphQL convergence |
+| `silofl-pzs.60` | specimen loading and errors are not announced | failure and successful retry | one busy live-status lifecycle |
+| `silofl-pzs.61` | selected rows rely on color alone | list and dense selection | persistent visible selection text |
+| `silofl-pzs.62` | font-face cleanup exceptions abort selection and reset | rejecting `FontFaceSet.delete` | exception-safe replace and clear |
+| `silofl-pzs.63` | superseded selected-font work survives A–B–A navigation | rapid repeated-ID detail requests | actor and query cancellation compose |
+| `silofl-pzs.64` | same-ID metadata refresh diverges from the loaded face | selected row replaced by a newer revision | row, specimen, face, and export reconverge |
+| `silofl-pzs.65` | pagination remains active during search debounce | page action before the new query resolves | page controls disabled for unresolved criteria |
+| `silofl-pzs.66` | one catalog event writes the URL twice | instrumented `replaceState` call origin | one app-originated canonical write |
+| `silofl-pzs.67` | long virtual rows overlap later results at narrow zoom | extreme metadata at 320px and 200% zoom | bounded row geometry and next-row interaction |
+| `silofl-pzs.68` | quoted commas bypass `Accept` quality exclusions | quoted media parameter with `q=0` | quote-aware representation parsing |
+| `silofl-pzs.69` | `Accept` media-parameter specificity is ignored | specific `q=0` and generic `q=1` ranges | most-specific matching range wins |
+| `silofl-pzs.70` | malformed `Accept` media ranges are treated as JSON | invalid wildcard and whitespace forms | safe 406 for invalid ranges |
+| `silofl-pzs.71` | development GraphiQL uses substring negotiation | HTML `q=0`, case, and quoted false positives | parsed acceptable HTML range only |
+| `silofl-pzs.72` | combined `Content-Type` validation is order-dependent | ambiguous header in both orders | consistent 415 before body parsing |
+| `silofl-pzs.73` | unsupported request charsets are silently erased | non-UTF-8 declared request body | explicit 415 with UTF-8 retained |
+| `silofl-pzs.74` | early request failures bypass `Accept` negotiation | rejected representation with 400/413 input | consistent safe 406 policy |
+| `silofl-pzs.75` | an inactive draft query can roll selected metadata backward | cached disabled query event during debounce | exact active ready-query reconciliation |
+| `silofl-pzs.76` | pointer selection loads one face up to three times | hover, focus, then click | equivalent face-load de-duplication |
+| `silofl-pzs.77` | actor cancellation does not stop query retry backoff | transient failure, stop, immediate same-ID restart | cancel the complete query lifecycle |
+| `silofl-pzs.78` | early errors ignore the selected JSON representation | JSON-only `Accept` with 400/413/415 input | negotiated early-error media type |
+| `silofl-pzs.79` | quoted `Accept` qvalues are accepted as quality weights | JSON and GraphiQL with `q="1"` | unquoted qvalue grammar |
+| `silofl-pzs.80` | `Accept` permits whitespace around parameter equals | JSON, GraphiQL, and mixed ranges with `q = 1` | strict parameter grammar |
+| `silofl-pzs.81` | a disabled cached draft replaces visible selected metadata | cached search key during debounce | retain the committed connection across surfaces |
+| `silofl-pzs.82` | media parameters after `q` lose `Accept` specificity | q-before-charset exclusion | order-independent q weight and media parameters |
+| `silofl-pzs.83` | Unicode whitespace becomes valid HTTP OWS | NBSP-wrapped media range | SP/HTAB-only OWS parsing |
+| `silofl-pzs.84` | GraphiQL negotiates an undeclared charset representation | charset-specific HTML acceptance and exclusion | matched negotiation and response `Content-Type` |
+| `silofl-pzs.85` | valid empty HTTP media parameters are rejected | trailing and interstitial empty parameter slots | RFC-compatible empty-parameter parsing |
+| `silofl-pzs.86` | GraphiQL ignores a higher-quality JSON preference | lower, higher, and tied HTML/JSON weights | highest-quality representation selection |
+| `silofl-pzs.87` | a disabled cached draft leaks a stale catalog error | failed cached key re-entered during debounce | ready/active error projection |
+| `silofl-pzs.88` | selection test reads screen-reader-only text as font identity | selected row with content-derived accessible name | identity from the public family-name contract |
+| `silofl-pzs.89` | face-resolution test depends on a removed `aria-label` | content-derived row name after accessibility correction | role/name-based row selection |
+
+`silofl-pzs.30` was closed as not reproducible: the characterization
+regression demonstrates coherent native Space activation without requiring a
+product change. The other 88 findings were reproduced before their fixes and
+retain their regressions.
 
 ## Final verification
 
-This section is completed after the isolated fixes are integrated and
-independently rechecked.
-
 | Gate | Final |
 | --- | --- |
-| lint | pending |
-| typecheck | pending |
-| unit and contract tests | pending |
-| Playwright | pending |
-| production build | pending |
-| live GraphQL smoke | pending |
-| worktree smoke | pending |
+| lint | passed, no warnings |
+| typecheck | passed |
+| unit and contract tests | 184 passed across 18 files |
+| Playwright | 72 passed in isolated headless Chromium |
+| production build | passed; `/`, `/_not-found`, and `/api/graphql` emitted |
+| live GraphQL smoke | passed; health, stats, public fonts, OFL scope, HTTPS targets, scalar serialization, and private POST caching |
+| worktree smoke | passed; six repository/isolation contracts and conflict-free semantic integration |
+
+The live database snapshot contained 10,864 repositories, 32,937 public font
+files, and 6,638 owners. Three reputation-sorted public rows were sampled; all
+used accepted OFL identifiers and HTTPS font targets. These counts are
+observational and may change as the catalog is refreshed.
