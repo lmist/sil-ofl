@@ -14,8 +14,8 @@ The verified surface is the complete authored application:
   face-load failure, clipboard failure, and not-found states
 - `/api/graphql` schema, resolvers, cursors, CORS, cache policy, methods,
   liveness, and public data visibility
-- Bun, Playwright, Conductor, lint, typecheck, unit, build, and worktree
-  configuration
+- Bun dependency resolution and audit, Playwright, Conductor, lint, typecheck,
+  unit, build, and worktree configuration
 
 The route/component/state inventory is in [SITE_MAP.md](SITE_MAP.md). The
 behavioral matrix is in [USER_STORIES.md](USER_STORIES.md). The binding
@@ -27,6 +27,7 @@ contract is in [INVARIANTS.md](INVARIANTS.md).
 
 | Gate | Baseline |
 | --- | --- |
+| `bun audit` | failed: five advisories (four high, one moderate) |
 | `bun run lint` | failed: one fixture error and four warnings |
 | `bun run typecheck` | passed |
 | `bun run test` | 24 passed |
@@ -197,13 +198,14 @@ retain their regressions.
 
 | Gate | Final |
 | --- | --- |
+| dependency audit | passed; no vulnerabilities in the Bun lockfile |
 | lint | passed, no warnings |
 | typecheck | passed |
-| unit and contract tests | 224 passed across 23 files |
+| unit and contract tests | 225 passed across 23 files |
 | Playwright | 85 passed in isolated headless Chromium |
 | production build | passed; `/`, `/_not-found`, and `/api/graphql` emitted |
 | live GraphQL smoke | passed via [`bun run test:live`](scripts/live-graphql-smoke.ts); bounded HTTP, health, stats, public fonts, OFL scope, HTTPS targets, scalar serialization, cache policy, and clean signal-aware shutdown |
-| worktree smoke | nine repository and isolation contract tests passed |
+| worktree smoke | ten repository and isolation contract tests passed |
 
 The live database snapshot contained 10,864 repositories, 32,937 public font
 files, and 6,638 owners. Three reputation-sorted public rows were sampled; all

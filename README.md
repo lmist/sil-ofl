@@ -83,7 +83,7 @@ bunx playwright install chromium
 bun run dev      # Turbopack
 bun run build
 bun run lint
-bun run verify   # lint, types, unit tests, build, and mocked browser E2E
+bun run verify   # dependency audit, lint, types, unit tests, build, and mocked browser E2E
 ```
 
 GraphiQL (non-production): [http://localhost:3000/api/graphql](http://localhost:3000/api/graphql)

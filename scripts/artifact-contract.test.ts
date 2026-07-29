@@ -169,7 +169,7 @@ describe("artifact contracts", () => {
     assert.doesNotMatch(qaReport, /conflict-free semantic integration/i);
     assert.match(
       qaReport,
-      /nine repository and isolation contract tests passed/,
+      /ten repository and isolation contract tests passed/,
     );
   });
 
@@ -219,7 +219,11 @@ describe("artifact contracts", () => {
       reportedFindingNumbers,
       Array.from({ length: 126 }, (_, index) => index + 1),
     );
-    assert.match(qaReport, /224 passed across 23 files/);
+    assert.match(
+      qaReport,
+      /dependency audit \| passed; no vulnerabilities in the Bun lockfile/,
+    );
+    assert.match(qaReport, /225 passed across 23 files/);
     assert.match(qaReport, /85 passed in isolated headless Chromium/);
     assert.match(
       uiTestReport,
