@@ -66,3 +66,7 @@
 # - github.token    → use GITHUB_TOKEN env var instead
 
 sync.remote: "git+https://github.com/lmist/sil-ofl.git"
+export:
+    auto: true
+    path: issues.jsonl
+    interval: 1s
