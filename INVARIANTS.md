@@ -180,8 +180,8 @@ operation MUST be contract-tested.
 ### INV-GQL-2 — Pagination is bounded
 
 Connection page size MUST have an explicit validated policy with a maximum of
-100. Invalid cursors and identifiers MUST fail as safe client input, not as
-internal server errors.
+100. Invalid cursors, identifiers, variables, and other malformed client input
+MUST fail as safe client input, not as internal server errors.
 
 ### INV-GQL-3 — Liveness is database-independent
 
