@@ -57,7 +57,7 @@ export class CatalogErrorBoundary extends Component<Props, State> {
         <button
           type="button"
           onClick={this.onRetry}
-          className="mt-3 underline underline-offset-4 transition-opacity duration-[var(--dur-fast)] hover:opacity-80 motion-reduce:transition-none"
+          className="mt-3 underline underline-offset-4 transition-colors duration-[var(--dur-fast)] hover:text-foreground motion-reduce:transition-none"
         >
           Try again
         </button>

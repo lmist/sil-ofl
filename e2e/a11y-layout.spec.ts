@@ -576,6 +576,32 @@ test.describe("catalog accessibility and responsive layout", () => {
     expect(results.violations.map(({ id }) => id)).toEqual([]);
   });
 
+  test("hovered catalog recovery keeps sufficient contrast", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mockGraphql();
+    await installDenseRenderFailure(page);
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    await page.getByRole("button", { name: "Dense table mode" }).click();
+    const boundary = page.locator("[data-catalog-error-boundary]");
+    const recovery = boundary.getByRole("button", { name: "Try again" });
+    await expect(recovery).toBeVisible();
+    await recovery.hover();
+
+    await expect(recovery).toHaveCSS("opacity", "1");
+    await expect(recovery).toHaveCSS("color", "rgb(255, 255, 255)");
+
+    const results = await new AxeBuilder({ page })
+      .include("[data-catalog-error-boundary]")
+      .withRules(["color-contrast"])
+      .analyze();
+    expect(results.violations.map(({ id }) => id)).toEqual([]);
+  });
+
   test("compact catalog actions have non-overlapping 24px targets", async ({
     page,
     mockGraphql,
