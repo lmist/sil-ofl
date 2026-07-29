@@ -1,0 +1,24 @@
+{
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "headers": [
+    {
+      "source": "/(.*)\\.(svg|ico|png|jpg|jpeg|gif|webp|woff2|woff)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, stale-while-revalidate=604800"
+        }
+      ]
+    },
+    {
+      "source": "/api/graphql",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, s-maxage=30, stale-while-revalidate=120"
+        }
+      ]
+    }
+  ]
+}

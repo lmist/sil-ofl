@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/*
+  Klim-inspired design tokens (see docs/klim-design-tokens.json).
+  shadcn/ui base CSS variables — neutral/new-york, no rainbow SaaS theme.
+  Values are HSL channels for hsl(var(--token)) usage.
+*/
+
+:root {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
+  --muted: 0 0% 33%;
+  --muted-foreground: 0 0% 53%;
+  --border: 0 0% 13%;
+  --border-strong: 0 0% 20%;
+  --primary: 14 100% 42%;
+  --primary-hover: 14 100% 50%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 0 0% 100%;
+  --card: 0 0% 0%;
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 0%;
+  --popover-foreground: 0 0% 100%;
+  --secondary: 0 0% 10%;
+  --secondary-foreground: 0 0% 100%;
+  --accent: 14 100% 42%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 0 0% 13%;
+  --radius: 0px;
+  --gutter: clamp(1rem, 3vw, 2.5rem);
+  --header-height: 3rem;
+  --catalog-row-gap: clamp(3rem, 10vh, 8rem);
+  --dur-fast: 120ms;
+  --dur-med: 200ms;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-border: hsl(var(--border));
+  --color-border-strong: hsl(var(--border-strong));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-ring: hsl(var(--ring));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-input: hsl(var(--input));
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus-visible: white hairline ring (Klim brief) */
+:focus-visible {
+  outline: 1px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Tabular figures for stars / weights */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Prefer reduced motion: kill non-essential transitions/animations */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Hairline catalog chrome helpers */
+.catalog-hairline {
+  border-color: hsl(var(--border));
+}
+
+/* Dark option lists for native selects on black field */
+select option {
+  background-color: #000;
+  color: #fff;
+}
