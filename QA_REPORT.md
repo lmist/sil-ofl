@@ -17,8 +17,9 @@ The verified surface is the complete authored application:
 - Bun, Playwright, Conductor, lint, typecheck, unit, build, and worktree
   configuration
 
-The route/component/state inventory is in `SITE_MAP.md`. The behavioral matrix
-is in `USER_STORIES.md`. The binding contract is in `INVARIANTS.md`.
+The route/component/state inventory is in [SITE_MAP.md](SITE_MAP.md). The
+behavioral matrix is in [USER_STORIES.md](USER_STORIES.md). The binding
+contract is in [INVARIANTS.md](INVARIANTS.md).
 
 ## Baseline
 
@@ -53,7 +54,8 @@ inside the application’s existing budget.
 
 ## Issue register
 
-The Beads issue record in `.beads/issues.jsonl` contains the full reproduction,
+The Beads issue record in
+[.beads/issues.jsonl](.beads/issues.jsonl) contains the full reproduction,
 expected and actual behavior, impact, acceptance criteria, assignment, and
 status for every finding.
 
@@ -148,10 +150,47 @@ status for every finding.
 | `silofl-pzs.87` | a disabled cached draft leaks a stale catalog error | failed cached key re-entered during debounce | ready/active error projection |
 | `silofl-pzs.88` | selection test reads screen-reader-only text as font identity | selected row with content-derived accessible name | identity from the public family-name contract |
 | `silofl-pzs.89` | face-resolution test depends on a removed `aria-label` | content-derived row name after accessibility correction | role/name-based row selection |
+| `silofl-pzs.90` | map and stories name the wrong fourth statistic | documented labels versus rendered stats strip | artifact-visible statistics contract |
+| `silofl-pzs.91` | live GraphQL evidence has no reproducible command | final smoke claim versus repository scripts | retained Bun live-smoke assertions |
+| `silofl-pzs.92` | site map omits pagination Clear | map versus rendered pagination actions | complete action inventory contract |
+| `silofl-pzs.93` | normative keywords are inconsistent | invariant vocabulary scan | declared canonical normative language |
+| `silofl-pzs.94` | invariants lack enforcement references | 47 stable IDs versus mapped seams | complete enforcement-map contract |
+| `silofl-pzs.95` | worktree evidence is overstated | report claim versus six retained tests | evidence-bounded gate wording |
+| `silofl-pzs.96` | companion evidence is not navigable | report artifact references | relative Markdown-link contract |
+| `silofl-pzs.97` | browser concurrency stories are under GraphQL | story section ownership | sequential browser/API taxonomy contract |
+| `silofl-pzs.98` | artifact contract test bypasses TypeScript support | focused test passes while typecheck fails | Node-compatible typed test APIs |
+| `silofl-pzs.99` | live smoke bypasses the Next cache context | direct route import with database-backed stats | isolated production-server HTTP smoke |
+| `silofl-pzs.100` | normal live-smoke shutdown prints a script error | successful smoke cleanup through a package wrapper | quiet direct Bun-owned Next lifecycle |
+| `silofl-pzs.101` | live-smoke requests can wait forever | connected but stalled HTTP response | bounded abort deadline on every request |
+| `silofl-pzs.102` | terminating the smoke can orphan Next | parent-only termination signal | forward signal and await child cleanup |
+| `silofl-pzs.103` | readiness ignores signal-based child exit | server stopped by a signal | code-and-signal readiness guard |
+| `silofl-pzs.104` | shutdown retains its losing timer | normal quick server exit | unreferenced and cleared timeout |
+| `silofl-pzs.105` | filter overflow maps omit renderers | invariant-to-seam comparison | renderer links and adversarial layout fixtures |
+| `silofl-pzs.106` | heading invariant omits title paths | loading and loaded document outlines | exact H1/title count and value |
+| `silofl-pzs.107` | reduced motion has no behavioral proof | computed rendered catalog styles | media, duration, iteration, and scroll assertions |
+| `silofl-pzs.108` | later distinct signals are swallowed | two registered termination signals | forward every signal, preserve the first outcome |
+| `silofl-pzs.109` | build-phase termination can orphan its child | parent-only signal during `next build` | build-child forwarding and cleanup |
+| `silofl-pzs.110` | asynchronous server spawn errors can escape cleanup | child `error` before readiness | immediate retained spawn-error observation |
+| `silofl-pzs.111` | a thrown `undefined` value is swallowed | legal JavaScript thrown value | structured failure sentinel |
+| `silofl-pzs.112` | readiness leaves retry bodies unread | non-200 startup response | explicit response-body cancellation |
+| `silofl-pzs.113` | spawn-error cleanup waits forever for a missing exit event | asynchronous ENOENT child with `error` and `close` but no `exit` | behavioral cleanup resolves without waiting for `exit` |
+| `silofl-pzs.114` | GraphQL document diagnostics echo submitted tokens | parse and validation canaries across GET/POST encodings | fixed safe diagnostics with protocol codes and locations retained |
+| `silofl-pzs.115` | unselected specimen previews lack visible preview identification | row focus and hover before selection | visible preview family without selected row, URL, or use panel |
+| `silofl-pzs.116` | omitted required GraphQL variables echo submitted names | omitted and null secret-shaped variables across GET/POST representations | fixed `BAD_USER_INPUT` copy with no reflection and private caching |
+| `silofl-pzs.117` | statistics failures have no accessible status or retry | failed Stats request with a successful Fonts request | stats-only accessible retry restores all four values without disabling the catalog |
+| `silofl-pzs.118` | dynamic use-panel labels diverge from accessible names | Copy, Copied, Retry, and Download states | every accessible name contains its current visible label |
+| `silofl-pzs.119` | invalid font weights escape into specimen and copied artifacts | fractional, non-positive, and above-1000 metadata | one shared integer 1–1000 policy with `400` fallback |
+| `silofl-pzs.120` | clipboard fallback exceptions escape failure UI | textarea setup, selection, removal, and focus failures | contained cleanup and focus restoration with accessible retryable failure |
+| `silofl-pzs.121` | clipboard Retry clears failure feedback before recovery settles | deferred successful and repeated failed writes | actionable failure or retrying feedback remains until settlement |
+| `silofl-pzs.122` | delayed pagination presents retained rows as the destination page | delayed Next transition snapshot | explicit retained-data label, busy state, locked controls, and atomic settlement |
+| `silofl-pzs.123` | unsupported GraphQL POST media types reach body handling | missing and `text/plain` Content-Type with oversized and streaming bodies | negotiated safe `415` before size checks, reads, parsing, or execution |
+| `silofl-pzs.124` | catalog render boundary clears after a failed retry refetch | render fault followed by failed then successful retry | failed refetch preserves the boundary; successful refetch clears it |
+| `silofl-pzs.125` | repeated runner signals can orphan the active child | real child requiring the same termination signal twice | durable forwarding in every runner with listener cleanup and first-signal outcome |
+| `silofl-pzs.126` | statistics failure overlaps filters at 200% zoom | failed Stats request at a 640×900 CSS viewport and 200% zoom | growing header with non-overlapping, reachable recovery and filter controls |
 
 `silofl-pzs.30` was closed as not reproducible: the characterization
 regression demonstrates coherent native Space activation without requiring a
-product change. The other 88 findings were reproduced before their fixes and
+product change. The other 125 findings were reproduced before their fixes and
 retain their regressions.
 
 ## Final verification
@@ -160,11 +199,11 @@ retain their regressions.
 | --- | --- |
 | lint | passed, no warnings |
 | typecheck | passed |
-| unit and contract tests | 184 passed across 18 files |
-| Playwright | 72 passed in isolated headless Chromium |
+| unit and contract tests | 224 passed across 23 files |
+| Playwright | 85 passed in isolated headless Chromium |
 | production build | passed; `/`, `/_not-found`, and `/api/graphql` emitted |
-| live GraphQL smoke | passed; health, stats, public fonts, OFL scope, HTTPS targets, scalar serialization, and private POST caching |
-| worktree smoke | passed; six repository/isolation contracts and conflict-free semantic integration |
+| live GraphQL smoke | passed via [`bun run test:live`](scripts/live-graphql-smoke.ts); bounded HTTP, health, stats, public fonts, OFL scope, HTTPS targets, scalar serialization, cache policy, and clean signal-aware shutdown |
+| worktree smoke | nine repository and isolation contract tests passed |
 
 The live database snapshot contained 10,864 repositories, 32,937 public font
 files, and 6,638 owners. Three reputation-sorted public rows were sampled; all

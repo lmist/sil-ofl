@@ -4,8 +4,8 @@ These statements are the hard contract for the SIL OFL Fonts application.
 They apply to the browser UI, URL state, GraphQL schema and transport, data
 queries, copied artifacts, and developer workflows.
 
-The words **MUST**, **MUST NOT**, and **SHOULD** are normative. Each invariant
-has a stable identifier. Code and tests may reference these identifiers.
+The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative. Each
+invariant has a stable identifier. Code and tests reference these identifiers.
 
 ## Catalog identity and state
 
@@ -18,13 +18,6 @@ identify that same font.
 Transient hover or focus preview MAY render another face only when it is
 visually identified as a preview and MUST NOT replace selected metadata, copied
 snippets, or the selected URL.
-
-Enforced at:
-
-- `src/machines/catalog-machine.ts`
-- `src/machines/specimen-machine.ts`
-- `src/hooks/use-font-catalog-shell.ts`
-- `e2e/catalog.spec.ts`
 
 ### INV-IDENTITY-2 — Deep links are complete
 
@@ -90,9 +83,11 @@ change and requires updated stories and tests.
 
 ### INV-FILTER-6 — Arbitrary text is layout-safe
 
-Search, owner, filenames, family names, repository names, error messages, and
+User-controlled search, owner, filenames, family names, repository names, and
 active-filter labels MUST NOT create document-level horizontal overflow at any
-supported viewport.
+supported viewport. Browser-visible safe error copy MUST remain layout-safe and
+MUST comply with `INV-ERROR-1`; arbitrary backend error text MUST NOT be
+rendered merely to exercise containment.
 
 ## Pagination and result truth
 
@@ -105,8 +100,14 @@ page identity is unresolved.
 ### INV-PAGE-2 — Page labels are truthful
 
 The displayed page number, Previous availability, current cursor, visible rows,
-and URL cursor MUST describe the same page. A deep-linked non-empty cursor MUST
-NOT be presented as Page 1 with Previous disabled.
+and URL cursor MUST describe the same settled page. During a replacement fetch
+permitted by `INV-PAGE-6`, the displayed page number, current cursor, and URL
+cursor MAY describe the pending destination while visible rows retain the
+previous settled page only when those rows are explicitly labeled as retained,
+the result surface is marked busy or placeholder, and pagination actions are
+locked. Once the request settles, every page-identity field and the visible rows
+MUST transition atomically. A deep-linked non-empty cursor MUST NOT be presented
+as Page 1 with Previous disabled.
 
 ### INV-PAGE-3 — Criteria reset the cursor
 
@@ -140,9 +141,11 @@ implementation details.
 
 ### INV-ERROR-2 — Expected failure is actionable
 
-Initial load, refetch, pagination, face load, clipboard, and malformed URL
-failures MUST expose an accessible status and an appropriate Retry, Reset, or
-alternative action.
+Initial load, statistics, refetch, pagination, face load, clipboard, and
+malformed URL failures MUST expose an accessible status and an appropriate
+Retry, Reset, or alternative action. Statistics failure MUST NOT prevent
+catalog use, and its recovery action MUST retry statistics without replacing
+the catalog request.
 
 ### INV-ERROR-3 — Recovery works in every view
 
@@ -211,7 +214,7 @@ request dimension MUST be retained in `Vary`.
 ### INV-GQL-6 — Production internals stay private
 
 Production MUST NOT expose GraphiQL, raw unexpected errors, database details, or
-secrets. Development diagnostics MUST not change cache or CORS safety.
+secrets. Development diagnostics MUST NOT change cache or CORS safety.
 
 ### INV-GQL-7 — One request has bounded work
 
@@ -268,20 +271,22 @@ descriptive document title.
 ### INV-A11Y-4 — Perceivable content
 
 Normal text MUST meet WCAG 2.2 AA contrast. Interactive targets MUST be at
-least 24 by 24 CSS pixels without target overlap. Information MUST not rely on
+least 24 by 24 CSS pixels without target overlap. Information MUST NOT rely on
 color alone.
 
 ### INV-A11Y-5 — Announcements are scoped
 
 Loading, result-count, copied, and error announcements MUST be concise and
-non-duplicative. Decorative or redundant text MUST not create competing live
+non-duplicative. Decorative or redundant text MUST NOT create competing live
 regions.
 
 ### INV-A11Y-6 — Responsive access
 
 At 320 CSS pixels and above, all primary tasks MUST remain available without
 document-level horizontal scrolling. Dense data regions MAY scroll internally.
-At 200% zoom, controls and text MUST not overlap or become unreachable.
+At 200% zoom, controls and text MUST NOT overlap or become unreachable. Header
+content, including the statistics recovery surface, MUST reflow without
+overlapping or clipping the following filter controls.
 
 ### INV-A11Y-7 — Reduced motion
 
@@ -301,7 +306,7 @@ origins. New-tab links MUST prevent opener access.
 
 ### INV-ARTIFACT-3 — Font loading is bounded
 
-Font loading MUST use the selected record's approved CDN URL and may fall back
+Font loading MUST use the selected record's approved CDN URL and MAY fall back
 once to its approved raw URL. Failure MUST stop with a recoverable state; it
 MUST NOT loop or silently load an unrelated face. Equivalent hover, focus, and
 selection events for the current face MUST NOT start duplicate face work.
@@ -318,14 +323,16 @@ Bun package manager version.
 
 Conductor workspaces MUST start from the repository root, copy only explicitly
 listed local environment files, and use their allocated `CONDUCTOR_PORT` range.
-Parallel workspaces MUST not share a fixed development port.
+Parallel workspaces MUST NOT share a fixed development port.
 
 ### INV-REPO-3 — Quality gates stay green
 
 `bun run lint`, `bun run typecheck`, `bun run test`, `bun run test:e2e`, and
 `bun run build` MUST pass before integration. A bug fix MUST include a
 regression test that failed against the faulty behavior and passes with the
-fix.
+fix. A gate runner with an active child MUST forward every registered
+termination signal until cleanup, remove its signal listeners during cleanup,
+and retain the first received signal as the parent outcome.
 
 ### INV-REPO-4 — Browser tests use public semantics
 
@@ -333,3 +340,351 @@ Browser tests MUST locate interactive behavior through accessible roles and
 names or an explicitly documented public DOM contract. Tests MUST NOT require
 an overriding accessible label that conflicts with visible content, and
 screen-reader-only instructions MUST NOT be mistaken for application identity.
+
+## Enforcement map
+
+Every stable invariant is mapped to production enforcement and retained
+regressions. A contract change MUST update the relevant entry and its linked
+tests in the same commit.
+
+### Identity
+
+- `INV-IDENTITY-1` — Production: [catalog machine](src/machines/catalog-machine.ts),
+  [specimen machine](src/machines/specimen-machine.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts), and
+  [specimen controller](src/hooks/use-font-specimen.ts). Regressions:
+  [catalog machine tests](src/machines/catalog-machine.test.ts),
+  [catalog state browser suite](e2e/catalog-state.spec.ts), and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+- `INV-IDENTITY-2` — Production: [URL codec](src/machines/catalog-url.ts),
+  [catalog URL controller](src/hooks/use-catalog-machine.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts),
+  [specimen machine](src/machines/specimen-machine.ts), and
+  [font fetch actor](src/machines/actors/fetch-fonts.ts). Regressions:
+  [URL codec tests](src/machines/catalog-url.test.ts),
+  [specimen machine tests](src/machines/specimen-machine.test.ts), and
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-IDENTITY-3` — Production:
+  [catalog machine](src/machines/catalog-machine.ts),
+  [specimen machine](src/machines/specimen-machine.ts),
+  [font-face loader](src/machines/actors/load-font-face.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts), and
+  [filter chip controller](src/hooks/use-filter-chips.ts). Regressions:
+  [catalog machine tests](src/machines/catalog-machine.test.ts),
+  [font-face loader tests](src/machines/load-font-face.test.ts),
+  [catalog state browser suite](e2e/catalog-state.spec.ts), and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+- `INV-IDENTITY-4` — Production:
+  [font-face descriptors](src/lib/font-face-descriptors.ts),
+  [specimen machine](src/machines/specimen-machine.ts),
+  [font-face loader](src/machines/actors/load-font-face.ts),
+  [specimen controller](src/hooks/use-font-specimen.ts),
+  [snippet builder](src/lib/font-use-snippets.ts), and
+  [font-use controller](src/hooks/use-font-use-panel.ts). Regressions:
+  [font-face descriptor tests](src/lib/font-face-descriptors.test.ts),
+  [specimen machine tests](src/machines/specimen-machine.test.ts),
+  [snippet tests](src/lib/font-use-snippets.test.ts),
+  [specimen/export browser suite](e2e/specimen-export.spec.ts), and
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-IDENTITY-5` — Production:
+  [catalog machine](src/machines/catalog-machine.ts),
+  [specimen machine](src/machines/specimen-machine.ts),
+  [font fetch actor](src/machines/actors/fetch-fonts.ts),
+  [font-face loader](src/machines/actors/load-font-face.ts),
+  [catalog URL controller](src/hooks/use-catalog-machine.ts), and
+  [catalog shell](src/hooks/use-font-catalog-shell.ts). Regressions:
+  [specimen machine tests](src/machines/specimen-machine.test.ts),
+  [font fetch actor tests](src/machines/actors/fetch-fonts.test.ts), and
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+
+### Filters and URL state
+
+- `INV-FILTER-1` — Production: [catalog machine](src/machines/catalog-machine.ts),
+  [URL codec](src/machines/catalog-url.ts),
+  [query identity](src/lib/query-keys.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts), and
+  [font fetch actor](src/machines/actors/fetch-fonts.ts). Regressions:
+  [catalog machine tests](src/machines/catalog-machine.test.ts),
+  [URL codec tests](src/machines/catalog-url.test.ts),
+  [query identity tests](src/lib/query-keys.test.ts), and
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-FILTER-2` — Production: [catalog machine](src/machines/catalog-machine.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts), and
+  [filter chip controller](src/hooks/use-filter-chips.ts). Regressions:
+  [catalog machine tests](src/machines/catalog-machine.test.ts) and
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-FILTER-3` — Production: [catalog types](src/types/catalog.ts),
+  [filter controller](src/hooks/use-font-filter-bar.ts), and
+  [dense table controller](src/hooks/use-dense-font-table.ts). Regression:
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-FILTER-4` — Production: [URL codec](src/machines/catalog-url.ts),
+  [catalog machine](src/machines/catalog-machine.ts), and
+  [catalog URL controller](src/hooks/use-catalog-machine.ts). Regressions:
+  [URL codec tests](src/machines/catalog-url.test.ts),
+  [catalog machine tests](src/machines/catalog-machine.test.ts),
+  [catalog state browser suite](e2e/catalog-state.spec.ts), and
+  [URL synchronization browser suite](e2e/url-sync.spec.ts).
+- `INV-FILTER-5` — Production: [URL codec](src/machines/catalog-url.ts),
+  [catalog URL controller](src/hooks/use-catalog-machine.ts),
+  [query identity](src/lib/query-keys.ts), and
+  [catalog shell](src/hooks/use-font-catalog-shell.ts). Regressions:
+  [URL codec tests](src/machines/catalog-url.test.ts),
+  [query identity tests](src/lib/query-keys.test.ts), and
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-FILTER-6` — Production:
+  [font search field](src/components/catalog/font-search-field.tsx),
+  [font filter bar](src/components/catalog/font-filter-bar.tsx),
+  [filter chips](src/components/catalog/filter-chips.tsx),
+  [font row](src/components/catalog/font-row.tsx),
+  [font list](src/components/catalog/font-list.tsx),
+  [dense table](src/components/catalog/dense-font-table.tsx),
+  [font specimen](src/components/catalog/font-specimen.tsx),
+  [font use panel](src/components/catalog/font-use-panel.tsx), and
+  [catalog error boundary](src/components/catalog/catalog-error-boundary.tsx).
+  Regressions:
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts) and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+
+### Pagination and result truth
+
+- `INV-PAGE-1` — Production: [catalog machine](src/machines/catalog-machine.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts), and
+  [pagination controller](src/hooks/use-pagination-controls.ts). Regressions:
+  [catalog machine tests](src/machines/catalog-machine.test.ts) and
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-PAGE-2` — Production: [catalog machine](src/machines/catalog-machine.ts),
+  [catalog URL controller](src/hooks/use-catalog-machine.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts),
+  [pagination controller](src/hooks/use-pagination-controls.ts), and
+  [font list projection](src/hooks/use-font-list.ts). Regressions:
+  [catalog machine tests](src/machines/catalog-machine.test.ts) and
+  [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-PAGE-3` — Production: [catalog machine](src/machines/catalog-machine.ts).
+  Regressions: [catalog machine tests](src/machines/catalog-machine.test.ts)
+  and [catalog state browser suite](e2e/catalog-state.spec.ts).
+- `INV-PAGE-4` — Production: [cursor codec](src/graphql/schema/cursor.ts),
+  [font pagination](src/graphql/schema/font-pagination.ts), and
+  [GraphQL resolvers](src/graphql/schema/types.ts). Regressions:
+  [cursor contract tests](src/graphql/cursor-contract.test.ts),
+  [resolver contract tests](src/graphql/resolver-contract.test.ts), and
+  [pagination SQL contract tests](src/graphql/font-pagination-contract.test.ts).
+- `INV-PAGE-5` — Production:
+  [public font policy](src/graphql/schema/public-font-policy.ts) and
+  [GraphQL resolvers](src/graphql/schema/types.ts). Regressions:
+  [public policy tests](src/graphql/public-font-policy.test.ts) and
+  [resolver contract tests](src/graphql/resolver-contract.test.ts).
+- `INV-PAGE-6` — Production: [catalog machine](src/machines/catalog-machine.ts),
+  [font query](src/hooks/use-fonts-query.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts),
+  [font list projection](src/hooks/use-font-list.ts),
+  [font list](src/components/catalog/font-list.tsx), and
+  [dense table](src/components/catalog/dense-font-table.tsx). Regressions:
+  [catalog machine tests](src/machines/catalog-machine.test.ts),
+  [catalog state browser suite](e2e/catalog-state.spec.ts), and
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts).
+
+### Errors and recovery
+
+- `INV-ERROR-1` — Production: [catalog machine](src/machines/catalog-machine.ts),
+  [specimen machine](src/machines/specimen-machine.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts),
+  [catalog error boundary](src/components/catalog/catalog-error-boundary.tsx),
+  and [GraphQL route](src/app/api/graphql/route.ts). Regressions:
+  [catalog machine tests](src/machines/catalog-machine.test.ts),
+  [specimen machine tests](src/machines/specimen-machine.test.ts),
+  [GraphQL route tests](src/graphql/route.test.ts),
+  [catalog state browser suite](e2e/catalog-state.spec.ts), and
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts).
+- `INV-ERROR-2` — Production: [catalog shell](src/hooks/use-font-catalog-shell.ts),
+  [statistics controller](src/hooks/use-stats-strip.ts),
+  [statistics strip](src/components/catalog/stats-strip.tsx),
+  [specimen machine](src/machines/specimen-machine.ts),
+  [font list](src/components/catalog/font-list.tsx),
+  [dense table](src/components/catalog/dense-font-table.tsx),
+  [font specimen](src/components/catalog/font-specimen.tsx),
+  [clipboard controller](src/hooks/use-font-use-panel.ts),
+  [font use panel](src/components/catalog/font-use-panel.tsx), and
+  [catalog error boundary](src/components/catalog/catalog-error-boundary.tsx).
+  Regressions: [catalog state browser suite](e2e/catalog-state.spec.ts),
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts), and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+- `INV-ERROR-3` — Production: [catalog machine](src/machines/catalog-machine.ts),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts),
+  [font list](src/components/catalog/font-list.tsx),
+  [dense table](src/components/catalog/dense-font-table.tsx), and
+  [catalog error boundary](src/components/catalog/catalog-error-boundary.tsx).
+  Regressions: [catalog machine tests](src/machines/catalog-machine.test.ts),
+  [catalog state browser suite](e2e/catalog-state.spec.ts), and
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts).
+- `INV-ERROR-4` — Production:
+  [clipboard controller](src/hooks/use-font-use-panel.ts) and
+  [font use panel](src/components/catalog/font-use-panel.tsx). Regression:
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+
+### Public data
+
+- `INV-DATA-1` — Production:
+  [public font policy](src/graphql/schema/public-font-policy.ts),
+  [GraphQL resolvers](src/graphql/schema/types.ts), and
+  [catalog statistics](src/lib/cached-stats.ts). Regressions:
+  [public policy tests](src/graphql/public-font-policy.test.ts),
+  [resolver contract tests](src/graphql/resolver-contract.test.ts), and
+  [statistics tests](src/lib/cached-stats.test.ts).
+- `INV-DATA-2` — Production:
+  [public font policy](src/graphql/schema/public-font-policy.ts) and
+  [GraphQL resolvers](src/graphql/schema/types.ts). Regression:
+  [resolver contract tests](src/graphql/resolver-contract.test.ts).
+- `INV-DATA-3` — Production: [GraphQL resolvers](src/graphql/schema/types.ts)
+  and [font pagination](src/graphql/schema/font-pagination.ts). Regressions:
+  [resolver contract tests](src/graphql/resolver-contract.test.ts),
+  [cursor contract tests](src/graphql/cursor-contract.test.ts), and
+  [schema contract tests](src/graphql/schema-contract.test.ts).
+
+### GraphQL
+
+- `INV-GQL-1` — Production: [schema builder](src/graphql/schema/builder.ts),
+  [GraphQL types](src/graphql/schema/types.ts),
+  [schema](src/graphql/schema/index.ts), and
+  [shipped documents](src/graphql/documents.ts). Regressions:
+  [schema contract tests](src/graphql/schema-contract.test.ts),
+  [operation result tests](src/graphql/operation-result-contract.test.ts), and
+  [resolver contract tests](src/graphql/resolver-contract.test.ts).
+- `INV-GQL-2` — Production: [GraphQL types](src/graphql/schema/types.ts),
+  [cursor codec](src/graphql/schema/cursor.ts),
+  [database text scalar](src/graphql/schema/database-text.ts),
+  [positive integer policy](src/lib/positive-safe-integer.ts), and
+  [GraphQL route](src/app/api/graphql/route.ts). Regressions:
+  [resolver contract tests](src/graphql/resolver-contract.test.ts),
+  [cursor contract tests](src/graphql/cursor-contract.test.ts), and
+  [GraphQL route tests](src/graphql/route.test.ts).
+- `INV-GQL-3` — Production: [GraphQL types](src/graphql/schema/types.ts),
+  [GraphQL route](src/app/api/graphql/route.ts), and
+  [database loader](src/lib/db.ts). Regressions:
+  [GraphQL route tests](src/graphql/route.test.ts) and
+  [production route contract tests](src/graphql/route-production-contract.test.ts).
+- `INV-GQL-4` — Production: [GraphQL route](src/app/api/graphql/route.ts).
+  Regression: [GraphQL route tests](src/graphql/route.test.ts).
+- `INV-GQL-5` — Production: [GraphQL route](src/app/api/graphql/route.ts).
+  Regression: [GraphQL route tests](src/graphql/route.test.ts).
+- `INV-GQL-6` — Production: [GraphQL route](src/app/api/graphql/route.ts).
+  Regressions: [GraphQL route tests](src/graphql/route.test.ts) and
+  [production route contract tests](src/graphql/route-production-contract.test.ts).
+- `INV-GQL-7` — Production: [GraphQL route](src/app/api/graphql/route.ts).
+  Regression: [GraphQL route tests](src/graphql/route.test.ts).
+- `INV-GQL-8` — Production: [GraphQL route](src/app/api/graphql/route.ts).
+  Regression: [GraphQL route tests](src/graphql/route.test.ts).
+- `INV-GQL-9` — Production: [GraphQL route](src/app/api/graphql/route.ts).
+  Regression: [GraphQL route tests](src/graphql/route.test.ts).
+
+### Accessibility
+
+- `INV-A11Y-1` — Production: [font list projection](src/hooks/use-font-list.ts),
+  [font row](src/components/catalog/font-row.tsx),
+  [dense table controller](src/hooks/use-dense-font-table.ts), and
+  [dense table](src/components/catalog/dense-font-table.tsx). Regression:
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts).
+- `INV-A11Y-2` — Production: [catalog composition](src/components/catalog/catalog-island.tsx),
+  [filter bar](src/components/catalog/font-filter-bar.tsx),
+  [specimen](src/components/catalog/font-specimen.tsx),
+  [catalog shell](src/hooks/use-font-catalog-shell.ts),
+  [font row](src/components/catalog/font-row.tsx),
+  [dense table controller](src/hooks/use-dense-font-table.ts), and
+  [dense table](src/components/catalog/dense-font-table.tsx). Regressions:
+  [catalog state browser suite](e2e/catalog-state.spec.ts) and
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts).
+- `INV-A11Y-3` — Production: [root layout metadata](src/app/layout.tsx),
+  [catalog heading](src/components/catalog/catalog-island.tsx), and
+  [catalog skeleton](src/components/catalog/catalog-skeleton.tsx).
+  Regressions: [catalog browser suite](e2e/catalog.spec.ts) and
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts).
+- `INV-A11Y-4` — Production: [global styles](src/app/globals.css),
+  [filter bar](src/components/catalog/font-filter-bar.tsx),
+  [filter chips](src/components/catalog/filter-chips.tsx),
+  [pagination controls](src/components/catalog/pagination-controls.tsx),
+  [font row](src/components/catalog/font-row.tsx),
+  [dense table](src/components/catalog/dense-font-table.tsx),
+  [font specimen](src/components/catalog/font-specimen.tsx),
+  [font use panel](src/components/catalog/font-use-panel.tsx), and
+  [catalog error boundary](src/components/catalog/catalog-error-boundary.tsx).
+  Regression:
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts).
+- `INV-A11Y-5` — Production:
+  [filter chip controller](src/hooks/use-filter-chips.ts),
+  [filter chips](src/components/catalog/filter-chips.tsx),
+  [font list](src/components/catalog/font-list.tsx),
+  [dense table](src/components/catalog/dense-font-table.tsx),
+  [font specimen](src/components/catalog/font-specimen.tsx), and
+  [font use panel](src/components/catalog/font-use-panel.tsx). Regressions:
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts) and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+- `INV-A11Y-6` — Production:
+  [catalog composition](src/components/catalog/catalog-island.tsx),
+  [statistics strip](src/components/catalog/stats-strip.tsx),
+  [font filter bar](src/components/catalog/font-filter-bar.tsx),
+  [filter chips](src/components/catalog/filter-chips.tsx),
+  [font row](src/components/catalog/font-row.tsx),
+  [font list](src/components/catalog/font-list.tsx),
+  [dense table](src/components/catalog/dense-font-table.tsx),
+  [font specimen](src/components/catalog/font-specimen.tsx), and
+  [font use panel](src/components/catalog/font-use-panel.tsx). Regression:
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts), including its
+  statistics-recovery geometry scenario at 200% zoom.
+- `INV-A11Y-7` — Production: [global styles](src/app/globals.css). Regression:
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts).
+
+### Generated artifacts and external actions
+
+- `INV-ARTIFACT-1` — Production:
+  [snippet builder](src/lib/font-use-snippets.ts) and
+  [font-use controller](src/hooks/use-font-use-panel.ts). Regressions:
+  [snippet tests](src/lib/font-use-snippets.test.ts) and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+- `INV-ARTIFACT-2` — Production:
+  [external URL policy](src/lib/external-url-policy.ts),
+  [snippet builder](src/lib/font-use-snippets.ts),
+  [font-face loader](src/machines/actors/load-font-face.ts), and
+  [font-use controller](src/hooks/use-font-use-panel.ts). Regressions:
+  [snippet tests](src/lib/font-use-snippets.test.ts),
+  [font-face loader tests](src/machines/load-font-face.test.ts), and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+- `INV-ARTIFACT-3` — Production:
+  [font-face loader](src/machines/actors/load-font-face.ts),
+  [specimen machine](src/machines/specimen-machine.ts), and
+  [catalog shell](src/hooks/use-font-catalog-shell.ts). Regressions:
+  [font-face loader tests](src/machines/load-font-face.test.ts),
+  [specimen machine tests](src/machines/specimen-machine.test.ts),
+  [catalog state browser suite](e2e/catalog-state.spec.ts), and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).
+
+### Repository and verification
+
+- `INV-REPO-1` — Production: [package scripts](package.json),
+  [Bun lockfile](bun.lock),
+  [Conductor settings](.conductor/settings.toml), and
+  [unit-test runner](scripts/run-tests.ts). Regression:
+  [repository contract tests](scripts/repository-contract.test.ts).
+- `INV-REPO-2` — Production: [Conductor settings](.conductor/settings.toml),
+  [worktree include policy](.worktreeinclude),
+  [Playwright configuration](playwright.config.ts),
+  [isolated E2E policy](scripts/isolated-e2e.ts), and
+  [isolated E2E runner](scripts/run-isolated-e2e.ts). Regressions:
+  [repository contract tests](scripts/repository-contract.test.ts) and
+  [isolated E2E tests](scripts/isolated-e2e.test.ts).
+- `INV-REPO-3` — Production: [package scripts](package.json),
+  [child-process lifecycle](scripts/live-child-process.ts),
+  [live GraphQL smoke](scripts/live-graphql-smoke.ts),
+  [unit-test runner](scripts/run-tests.ts),
+  [Playwright configuration](playwright.config.ts), and
+  [isolated E2E runner](scripts/run-isolated-e2e.ts). Regressions:
+  [repository contract tests](scripts/repository-contract.test.ts),
+  [isolated E2E tests](scripts/isolated-e2e.test.ts), and
+  [child-process lifecycle tests](scripts/live-child-process.test.ts),
+  [artifact contract tests](scripts/artifact-contract.test.ts).
+- `INV-REPO-4` — Production: [Playwright configuration](playwright.config.ts),
+  [font row](src/components/catalog/font-row.tsx), and
+  [dense table](src/components/catalog/dense-font-table.tsx). Regressions:
+  [repository contract tests](scripts/repository-contract.test.ts),
+  [catalog browser suite](e2e/catalog.spec.ts),
+  [catalog state browser suite](e2e/catalog-state.spec.ts),
+  [accessibility/layout browser suite](e2e/a11y-layout.spec.ts), and
+  [specimen/export browser suite](e2e/specimen-export.spec.ts).

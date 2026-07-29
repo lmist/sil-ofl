@@ -9,12 +9,14 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 1. As a visitor, I can open `/` and immediately see a stable loading shell
    while interactive chunks and catalog data load.
 2. As a visitor, I can identify the page from its title and level-one heading.
-3. As a visitor, I can see repository, font, owner, and populated-repository
-   statistics when they resolve.
+3. As a visitor, I can see Fonts, Repos, Owners, and Matched statistics when
+   they resolve.
 4. As a visitor on a slow connection, I see loading state without layout
    collapse, duplicate controls, or unusable filters.
-5. As a visitor when statistics fail, I can still use the catalog and receive a
-   safe status for the failed statistic surface.
+5. As a visitor when statistics fail, I can still use the catalog, receive an
+   accessible failure status, and retry only the statistics until Fonts,
+   Repos, Owners, and Matched recover without the recovery surface covering the
+   filters at 200% zoom.
 6. As a returning visitor, cached data may appear immediately and is labeled
    when it is being refreshed.
 
@@ -86,7 +88,9 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
     debouncing.
 45. As a visitor, rapid repeated activation cannot skip or duplicate a page.
 46. As a visitor, page number, visible rows, cursor URL, and button availability
-    always describe the same page.
+    describe the same settled page; during a pending destination transition,
+    retained rows are explicitly labeled, the surface is busy, and pagination
+    is locked until every page identity settles together.
 47. As a visitor, changing any result criterion clears cursor history.
 48. As a visitor, a valid cursor deep link loads the corresponding page or
     presents an explicit recovery if previous history cannot be reconstructed.
@@ -123,8 +127,8 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 
 ## Preview, specimen, and selection
 
-63. As a visitor, hovering or focusing a row can preview its face without
-    corrupting the current selection.
+63. As a visitor, hovering or focusing an unselected row visibly identifies its
+    family as a Preview without claiming a selected row, font URL, or use panel.
 64. As a visitor, I can select a font with pointer, Enter, or Space.
 65. As a visitor, the selected row, URL, loaded face, specimen, and use panel
     all identify the same font record revision, including after a same-ID
@@ -137,8 +141,8 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 69. As a visitor, I can edit the specimen phrase.
 70. As a visitor, my specimen phrase remains stable while I preview or select
     fonts.
-71. As a visitor, an italic face renders italic and a weighted face renders at
-    its resolved weight.
+71. As a visitor, an italic face renders italic; valid integer weights from 1
+    through 1000 render as supplied, and every invalid weight renders as 400.
 72. As a visitor, I see a loading state while the selected face is fetched.
 73. As a visitor, a CDN failure may fall back once to the approved raw file.
 74. As a visitor, a complete face-load failure is explicit and retryable.
@@ -147,15 +151,17 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 
 ## Use and export
 
-76. As a visitor with a selection, I can inspect its family, weight, style, and
-    usage preview.
+76. As a visitor with a selection, I can inspect its family, style, and the same
+    canonical weight used by the specimen and every generated artifact.
 77. As a visitor, I can copy valid CSS for the selected face.
 78. As a visitor, I can copy a valid standalone HTML example.
 79. As a visitor, I can copy a valid React-oriented example.
 80. As a visitor, I can copy the selected CDN URL.
 81. As a visitor, I can copy the selected raw URL.
 82. As a visitor, copy success appears only after the browser confirms it.
-83. As a visitor, clipboard failure is communicated and can be retried.
+83. As a visitor, clipboard setup, selection, cleanup, or focus failure is
+    contained and communicated; actionable failure or retrying feedback remains
+    visible until each Retry settles.
 84. As a visitor, I can download the selected font from an approved HTTPS URL.
 85. As a visitor, I can open the selected repository in a safe new tab.
 86. As a keyboard user, every use-panel action is reachable, visibly focused,
@@ -177,8 +183,9 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
 
 ## Failure, performance, and responsive behavior
 
-94. As a visitor, HTTP errors, GraphQL errors, malformed JSON, and offline
-    failures produce safe, actionable states.
+94. As a visitor, HTTP errors, GraphQL errors, malformed JSON, offline failures,
+    and render faults produce safe, actionable states; a failed render-boundary
+    refetch keeps its Retry available until a later successful refetch recovers.
 95. As a visitor, error text never exposes requests, variables, internals, SQL,
     stack traces, or credentials.
 96. As a visitor, repeated filter, page, selection, and mode changes do not
@@ -187,60 +194,67 @@ including loading, empty, failure, keyboard, responsive, and adversarial states.
     performance budgets.
 98. As a visitor at 320, 375, 768, 1024, or 1440 CSS pixels, every primary task
     remains reachable.
-99. As a visitor at 200% zoom, text and controls do not overlap or disappear.
+99. As a visitor at 200% zoom, text and controls do not overlap or disappear,
+    including the statistics failure alert, Retry statistics action, and filter
+    bar.
 100. As a visitor who prefers reduced motion, non-essential transitions are
      suppressed.
 101. As a visitor, normal text meets WCAG AA contrast and status is not conveyed
      by color alone.
 102. As a screen-reader user, live announcements are concise and do not compete.
 
+## Browser concurrency and cache isolation
+
+103. As a visitor, one pointer selection does not start duplicate face work as
+     hover, focus, and click occur in sequence.
+104. As a visitor, stopping a request during retry backoff prevents its
+     superseded retry lifecycle from joining a current same-font request.
+105. As a visitor, a failed cached search key cannot expose stale error UI while
+     it is only a disabled debounce draft.
+
 ## GraphQL consumer
 
-103. As a monitor, I can query process liveness without database configuration.
-104. As a catalog consumer, I can query public OFL-only statistics.
-105. As a catalog consumer, I can query an OFL-only font connection with
+106. As a monitor, I can query process liveness without database configuration.
+107. As a catalog consumer, I can query public OFL-only statistics.
+108. As a catalog consumer, I can query an OFL-only font connection with
      documented filters, sorts, page bounds, total count, and page information.
-106. As a catalog consumer, I can resolve one publicly visible font by a valid
+109. As a catalog consumer, I can resolve one publicly visible font by a valid
      identifier.
-107. As a repository consumer, I can query a filtered repository connection.
-108. As a repository consumer, I can resolve a documented repository detail.
-109. As a consumer, list, detail, count, and statistics visibility rules are
+110. As a repository consumer, I can query a filtered repository connection.
+111. As a repository consumer, I can resolve a documented repository detail.
+112. As a consumer, list, detail, count, and statistics visibility rules are
      consistent.
-110. As a consumer, malformed identifiers, cursors, arguments, and documents
-     produce safe client errors.
-111. As a consumer, every sort traverses tied and nullable values without
+113. As a consumer, malformed identifiers, cursors, arguments, and documents
+     produce safe client errors; parse, validation, and required-variable
+     diagnostics never reflect submitted tokens, variable names, or values.
+114. As a consumer, every sort traverses tied and nullable values without
      omission or duplication.
-112. As a consumer, schema nullability and scalar ranges match returned data and
+115. As a consumer, schema nullability and scalar ranges match returned data and
      published client contracts.
-113. As a same-origin browser, I can call supported API methods under an
+116. As a same-origin browser, I can call supported API methods under an
      explicit CORS policy.
-114. As an operator, validation and execution errors are never marked for shared
+117. As an operator, validation and execution errors are never marked for shared
      public caching.
-115. As an operator, only parsed, selected, successful, anonymous GET operations
+118. As an operator, only parsed, selected, successful, anonymous GET operations
      receive the documented shared cache policy.
-116. As an operator, production hides GraphiQL and unexpected internal details.
-117. As an operator, bounded page size and request policy prevent unbounded
+119. As an operator, production hides GraphiQL and unexpected internal details.
+120. As an operator, bounded page size and request policy prevent unbounded
      public queries.
-118. As a developer outside production, I can use GraphiQL without changing
+121. As a developer outside production, I can use GraphiQL without changing
      production security or cache behavior.
-119. As an API consumer, executed operations return sanitized JSON or a safe
+122. As an API consumer, executed operations return sanitized JSON or a safe
      private `406` when the request cannot negotiate a JSON GraphQL response.
-120. As an API consumer, quoted media parameters, quality exclusions,
+123. As an API consumer, quoted media parameters, quality exclusions,
      specificity, casing, and valid wildcards are negotiated consistently.
-121. As an API consumer, malformed media ranges cannot be mistaken for a JSON
+124. As an API consumer, malformed media ranges cannot be mistaken for a JSON
      representation.
-122. As a developer outside production, GraphiQL appears only when a parsed
+125. As a developer outside production, GraphiQL appears only when a parsed
      `text/html` range is genuinely acceptable.
-123. As an API consumer, ambiguous combined content types and unsupported
-     request charsets fail safely before body parsing.
-124. As an API consumer, representation negotiation also governs body-limit and
+126. As an API consumer, missing or unsupported content types, ambiguous
+     combined types, and unsupported request charsets receive a negotiated safe
+     `415` before body-size checks, reads, parsing, or execution.
+127. As an API consumer, representation negotiation also governs body-limit and
      malformed-request failures.
-125. As a visitor, one pointer selection does not start duplicate face work as
-     hover, focus, and click occur in sequence.
-126. As a visitor, stopping a request during retry backoff prevents its
-     superseded retry lifecycle from joining a current same-font request.
-127. As a developer outside production, GraphiQL is selected only when its
+128. As a developer outside production, GraphiQL is selected only when its
      acceptable HTML representation does not lose to a higher-quality JSON
      preference.
-128. As a visitor, a failed cached search key cannot expose stale error UI
-     while it is only a disabled debounce draft.

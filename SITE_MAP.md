@@ -25,7 +25,10 @@ surface appears in this order:
 
 1. Header
    - “SIL OFL Fonts” page identity
-   - repository, font, owner, and repository-with-files statistics
+   - `Fonts`, `Repos`, `Owners`, and `Matched` statistics
+   - accessible “Statistics unavailable” status and Retry statistics action
+     when only statistics fail; the header grows so this recovery surface does
+     not overlap the filter bar, including at 200% zoom
 2. Filter and navigation bar
    - full-text search
    - format select: Any, TTF, OTF, WOFF, WOFF2
@@ -35,14 +38,15 @@ surface appears in this order:
    - Webfont-only toggle
    - Variable-only toggle
    - Dense/list-mode toggle
-   - Previous and Next pagination controls
+   - Previous, Next, and Clear pagination controls
 3. Active-filter strip
    - matched result count
    - one removable chip per active filter
    - Clear all
 4. Font specimen
    - editable specimen text
-   - selected/preview font metadata
+   - selected font metadata or a visible family-specific unselected Preview
+     label
    - face-loading, failure, and retry states
 5. Use panel, when a font is selected
    - selected family, weight, and style
@@ -54,12 +58,15 @@ surface appears in this order:
    - Download file
    - Open repository on GitHub
    - scrollable snippet preview
+   - dynamic accessible action names that retain their visible Copy, Copied,
+     Retry, and Download labels
 6. Results
    - default virtualized font list, or
    - dense sortable table
    - row hover/focus preview
    - row selection
    - initial, placeholder, empty, error, and retry states
+   - an explicit retained-results status while a requested page is pending
 
 ## Client component tree
 
@@ -121,6 +128,9 @@ documented URL-backed subset.
 The specimen machine owns the active record, generated family name, face-load
 stage, selected/preview status, editable text, and retry state. Font binaries
 are loaded with `FontFace` from the record’s CDN URL with raw URL fallback.
+Only integer weights from 1 through 1000 are preserved; all other metadata
+weights resolve to `400` across the loaded face, specimen, and generated
+artifacts.
 
 ## `/api/graphql` surface
 
@@ -128,10 +138,14 @@ The API is query-only. Executed operations negotiate
 `application/graphql-response+json` or `application/json`; unsupported response
 media receive a private safe `406`, including on early request failures.
 Negotiation uses parsed media ranges with quoted-value, quality, and specificity
-handling. POST accepts one supported UTF-8 content type; ambiguous combined
-types or unsupported charsets receive a private safe `415`. The HTML
-development GraphiQL entry point is handled separately before operation
-execution and requires an acceptable parsed `text/html` range.
+handling. POST requires one supported UTF-8 content type; a missing type, an
+unsupported type, ambiguous combined types, or unsupported charsets receive a
+negotiated private safe `415` before size checks, body reads, parsing, or
+execution. Parse, validation, and variable-coercion diagnostics retain useful
+protocol codes and locations without reflecting submitted document tokens,
+variable names, or values. The HTML development GraphiQL entry point is handled
+separately before operation execution and requires an acceptable parsed
+`text/html` range.
 
 | Query | Purpose | Main inputs |
 | --- | --- | --- |
@@ -160,6 +174,8 @@ Both connections use forward keyset cursors and return `edges`, `pageInfo`, and
   raw GitHub locations.
 - Download and repository actions navigate to approved external HTTPS targets.
 - Clipboard actions use the browser Clipboard API with a legacy fallback.
+- Legacy clipboard setup, selection, cleanup, and focus failures are contained;
+  failed or pending Retry attempts retain truthful accessible feedback.
 - Development GraphiQL loads only outside production.
 
 ## Responsive modes
@@ -168,6 +184,8 @@ Both connections use forward keyset cursors and return `edges`, `pageInfo`, and
 - Dense mode: compact table with an internal horizontal scroll region.
 - Filter controls wrap as width decreases.
 - Supported browser width begins at 320 CSS pixels.
+- At 200% zoom, the header, statistics recovery surface, filter bar, and
+  remaining primary controls reflow without overlap or clipping.
 - Reduced-motion preferences suppress non-essential transitions.
 
 ## Recovery surfaces
@@ -175,7 +193,8 @@ Both connections use forward keyset cursors and return `edges`, `pageInfo`, and
 - route loading skeleton
 - list/table loading and retained-data states
 - empty result state
-- catalog error boundary
+- statistics failure status and stats-only retry
+- catalog error boundary that remains retryable after a failed refetch
 - data request retry
 - font-face retry
 - malformed URL reset

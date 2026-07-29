@@ -231,15 +231,15 @@
         <h2 id="summary-heading">Final result</h2>
         <div class="metrics">
           <div class="metric">
-            <strong>72</strong>
+            <strong>85</strong>
             <span>isolated browser scenarios passed</span>
           </div>
           <div class="metric">
-            <strong>184</strong>
+            <strong>224</strong>
             <span>unit and contract tests passed</span>
           </div>
           <div class="metric">
-            <strong>88</strong>
+            <strong>125</strong>
             <span>reproduced defects fixed</span>
           </div>
           <div class="metric">
@@ -264,16 +264,16 @@
               <td>Accessibility and layout</td>
               <td>
                 semantics, announcements, contrast, targets, 320px layout,
-                recovery
+                200% zoom, recovery
               </td>
-              <td class="pass">24 passed</td>
+              <td class="pass">29 passed</td>
             </tr>
             <tr>
               <td>Catalog state</td>
               <td>
                 filters, URL, history, selection, races, pagination, errors
               </td>
-              <td class="pass">27 passed</td>
+              <td class="pass">31 passed</td>
             </tr>
             <tr>
               <td>Core flows and performance</td>
@@ -283,7 +283,7 @@
             <tr>
               <td>Specimen and export</td>
               <td>font identity, lifecycle, CSS safety, clipboard, focus</td>
-              <td class="pass">13 passed</td>
+              <td class="pass">17 passed</td>
             </tr>
             <tr>
               <td>Catalog URL synchronization</td>
@@ -321,8 +321,8 @@
               keyboard activation, and visible selection markers are present.
             </li>
             <li>
-              Long metadata stays within a 320px document; compact controls
-              retain 24px targets and sufficient contrast.
+              Long metadata stays within a 320px document; statistics recovery
+              and catalog controls remain separate at 200% zoom.
             </li>
             <li>
               GraphQL input, cursor, complexity, CORS, cache, scalar, and error
@@ -350,7 +350,7 @@
       <section aria-labelledby="records-heading">
         <h2 id="records-heading">Evidence</h2>
         <p class="note">
-          The issue register contains 89 findings: 88 reproduced defects with
+          The issue register contains 126 findings: 125 reproduced defects with
           retained regressions and one Space-activation concern closed as not
           reproducible after characterization.
         </p>
