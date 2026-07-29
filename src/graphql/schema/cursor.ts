@@ -4,11 +4,11 @@
  */
 
 export type FontCursorPayload = {
-  v: 1;
+  v: 2;
   /** sort field values used for keyset comparison */
   rep: number;
   stars: number;
-  family: string;
+  family: string | null;
   id: number;
 };
 
@@ -34,6 +34,14 @@ function b64urlDecode(cursor: string): string {
   return Buffer.from(b64, "base64").toString("utf8");
 }
 
+function isSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
+
+export function isPositiveSafeInteger(value: unknown): value is number {
+  return isSafeInteger(value) && value > 0;
+}
+
 export function encodeFontCursor(p: FontCursorPayload): string {
   return b64urlEncode(JSON.stringify(p));
 }
@@ -41,13 +49,21 @@ export function encodeFontCursor(p: FontCursorPayload): string {
 export function decodeFontCursor(cursor: string): FontCursorPayload | null {
   try {
     const raw = JSON.parse(b64urlDecode(cursor)) as Partial<FontCursorPayload>;
-    if (raw.v !== 1 || typeof raw.id !== "number") return null;
+    if (
+      raw.v !== 2 ||
+      !isPositiveSafeInteger(raw.id) ||
+      !isSafeInteger(raw.rep) ||
+      !isSafeInteger(raw.stars) ||
+      (raw.family !== null && typeof raw.family !== "string")
+    ) {
+      return null;
+    }
     return {
-      v: 1,
-      rep: Number(raw.rep ?? 0),
-      stars: Number(raw.stars ?? 0),
-      family: String(raw.family ?? ""),
-      id: Number(raw.id),
+      v: 2,
+      rep: raw.rep,
+      stars: raw.stars,
+      family: raw.family,
+      id: raw.id,
     };
   } catch {
     return null;
@@ -61,13 +77,21 @@ export function encodeRepoCursor(p: RepoCursorPayload): string {
 export function decodeRepoCursor(cursor: string): RepoCursorPayload | null {
   try {
     const raw = JSON.parse(b64urlDecode(cursor)) as Partial<RepoCursorPayload>;
-    if (raw.v !== 1 || typeof raw.id !== "number") return null;
+    if (
+      raw.v !== 1 ||
+      !isPositiveSafeInteger(raw.id) ||
+      !isSafeInteger(raw.rep) ||
+      !isSafeInteger(raw.stars) ||
+      typeof raw.name !== "string"
+    ) {
+      return null;
+    }
     return {
       v: 1,
-      rep: Number(raw.rep ?? 0),
-      stars: Number(raw.stars ?? 0),
-      name: String(raw.name ?? ""),
-      id: Number(raw.id),
+      rep: raw.rep,
+      stars: raw.stars,
+      name: raw.name,
+      id: raw.id,
     };
   } catch {
     return null;

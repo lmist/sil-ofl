@@ -3,17 +3,52 @@ import {
   markTypesRegistered,
   typesAlreadyRegistered,
 } from "./builder";
-import { clamp } from "@/lib/utils";
+import { GraphQLError } from "graphql";
 import {
   decodeFontCursor,
   decodeRepoCursor,
   encodeFontCursor,
   encodeRepoCursor,
+  isPositiveSafeInteger,
 } from "./cursor";
+import {
+  fontKeyset,
+  fontOrderBy,
+  type FontSortValue,
+} from "./font-pagination";
+import {
+  PUBLIC_RENDERABLE_REPO_FONT_CLAUSE,
+  publicFontVisibilityClauses,
+  publicRepoVisibilityClauses,
+} from "./public-font-policy";
 import type { CatalogStats, FontFile, Repo } from "@/types/catalog";
 
 const MAX_FIRST = 100;
 const DEFAULT_FIRST = 50;
+
+function badUserInput(message: string): GraphQLError {
+  return new GraphQLError(message, {
+    extensions: { code: "BAD_USER_INPUT" },
+  });
+}
+
+function requirePageSize(first: number | null | undefined): number {
+  const value = first ?? DEFAULT_FIRST;
+  if (!Number.isInteger(value) || value < 1 || value > MAX_FIRST) {
+    throw badUserInput("first must be an integer from 1 through 100");
+  }
+  return value;
+}
+
+function requireFontId(input: string | number): number {
+  if (typeof input === "number") {
+    if (isPositiveSafeInteger(input)) return input;
+  } else if (/^[1-9]\d*$/.test(input)) {
+    const id = Number(input);
+    if (isPositiveSafeInteger(id)) return id;
+  }
+  throw badUserInput("font id must be a positive safe integer");
+}
 
 function registerSchemaTypes(): void {
   if (typesAlreadyRegistered()) return;
@@ -335,10 +370,10 @@ function mapRepo(row: RepoRow): Repo {
 
 function fontCursorOf(node: FontFile): string {
   return encodeFontCursor({
-    v: 1,
+    v: 2,
     rep: node.reputation,
     stars: node.stars,
-    family: node.familyGuess ?? "",
+    family: node.familyGuess,
     id: node.fontFileId,
   });
 }
@@ -351,94 +386,6 @@ function repoCursorOf(node: Repo): string {
     name: node.fullName,
     id: node.id,
   });
-}
-
-type FontSortValue =
-  | "REPUTATION_DESC"
-  | "REPUTATION_ASC"
-  | "STARS_DESC"
-  | "STARS_ASC"
-  | "FAMILY_ASC"
-  | "FAMILY_DESC"
-  | "ID_DESC"
-  | "ID_ASC";
-
-function fontOrderBy(sort: FontSortValue): string {
-  switch (sort) {
-    case "REPUTATION_ASC":
-      return "r.reputation ASC, f.id ASC";
-    case "STARS_DESC":
-      return "r.stars DESC, f.id DESC";
-    case "STARS_ASC":
-      return "r.stars ASC, f.id ASC";
-    case "FAMILY_ASC":
-      return "f.family_guess ASC NULLS LAST, f.id ASC";
-    case "FAMILY_DESC":
-      return "f.family_guess DESC NULLS LAST, f.id DESC";
-    case "ID_ASC":
-      return "f.id ASC";
-    case "ID_DESC":
-      return "f.id DESC";
-    case "REPUTATION_DESC":
-    default:
-      return "r.reputation DESC, f.id DESC";
-  }
-}
-
-/**
- * Keyset predicate for the active sort.
- * Returns SQL with $n placeholders starting at paramStart, plus bind values
- * in order (only the columns used — never leave unused $params).
- */
-function fontKeyset(
-  sort: FontSortValue,
-  cursor: { rep: number; stars: number; family: string; id: number },
-  paramStart: number,
-): { sql: string; values: unknown[] } {
-  const p = (offset: number) => `$${paramStart + offset}`;
-  switch (sort) {
-    case "REPUTATION_ASC":
-      return {
-        sql: `(r.reputation, f.id) > (${p(0)}, ${p(1)})`,
-        values: [cursor.rep, cursor.id],
-      };
-    case "STARS_DESC":
-      return {
-        sql: `(r.stars, f.id) < (${p(0)}, ${p(1)})`,
-        values: [cursor.stars, cursor.id],
-      };
-    case "STARS_ASC":
-      return {
-        sql: `(r.stars, f.id) > (${p(0)}, ${p(1)})`,
-        values: [cursor.stars, cursor.id],
-      };
-    case "FAMILY_ASC":
-      return {
-        sql: `(COALESCE(f.family_guess, ''), f.id) > (${p(0)}, ${p(1)})`,
-        values: [cursor.family, cursor.id],
-      };
-    case "FAMILY_DESC":
-      return {
-        sql: `(COALESCE(f.family_guess, ''), f.id) < (${p(0)}, ${p(1)})`,
-        values: [cursor.family, cursor.id],
-      };
-    case "ID_ASC":
-      return {
-        sql: `f.id > ${p(0)}`,
-        values: [cursor.id],
-      };
-    case "ID_DESC":
-      return {
-        sql: `f.id < ${p(0)}`,
-        values: [cursor.id],
-      };
-    case "REPUTATION_DESC":
-    default:
-      return {
-        sql: `(r.reputation, f.id) < (${p(0)}, ${p(1)})`,
-        values: [cursor.rep, cursor.id],
-      };
-  }
 }
 
 function repoOrderBy(): string {
@@ -477,7 +424,7 @@ builder.queryFields((t) => ({
       after: t.arg.string({ required: false }),
     },
     resolve: async (_root, args, ctx) => {
-      const first = clamp(args.first ?? DEFAULT_FIRST, 1, MAX_FIRST);
+      const first = requirePageSize(args.first);
       const sort = (args.sort ?? "REPUTATION_DESC") as FontSortValue;
       const filter = args.filter ?? {};
       const minStars = filter.minStars ?? 0;
@@ -493,7 +440,7 @@ builder.queryFields((t) => ({
 
       const cursor = args.after ? decodeFontCursor(args.after) : null;
       if (args.after && !cursor) {
-        throw new Error("Invalid cursor");
+        throw badUserInput("after must be a valid cursor");
       }
 
       // Build parameterized query with $n placeholders (no string concat of user values).
@@ -503,12 +450,8 @@ builder.queryFields((t) => ({
         return `$${params.length}`;
       };
 
-      const where: string[] = [
-        `NOT r.is_archived`,
-        `r.is_fontish`,
-        `f.format IN ('ttf', 'otf', 'woff', 'woff2')`,
-        `r.stars >= ${push(minStars)}`,
-      ];
+      const where = publicFontVisibilityClauses();
+      where.push(`r.stars >= ${push(minStars)}`);
 
       if (owner) {
         where.push(`o.login = ${push(owner)}`);
@@ -564,12 +507,8 @@ builder.queryFields((t) => ({
         countParams.push(v);
         return `$${countParams.length}`;
       };
-      const countWhere: string[] = [
-        `NOT r.is_archived`,
-        `r.is_fontish`,
-        `f.format IN ('ttf', 'otf', 'woff', 'woff2')`,
-        `r.stars >= ${cpush(minStars)}`,
-      ];
+      const countWhere = publicFontVisibilityClauses();
+      countWhere.push(`r.stars >= ${cpush(minStars)}`);
       if (owner) countWhere.push(`o.login = ${cpush(owner)}`);
       if (formats) countWhere.push(`f.format = ANY(${cpush(formats)}::text[])`);
       if (webfont === true) countWhere.push(`f.is_webfont = true`);
@@ -627,10 +566,9 @@ builder.queryFields((t) => ({
       id: t.arg.id({ required: true }),
     },
     resolve: async (_root, args, ctx) => {
-      const id = Number(args.id);
-      if (!Number.isFinite(id)) return null;
+      const id = requireFontId(args.id);
 
-      const rows = (await ctx.sql`
+      const detailSql = `
         SELECT
           f.id AS font_file_id,
           f.cdn_url,
@@ -657,12 +595,11 @@ builder.queryFields((t) => ({
         FROM font_files f
         JOIN repos r ON r.id = f.repo_id
         JOIN owners o ON o.id = r.owner_id
-        WHERE f.id = ${id}
-          AND NOT r.is_archived
-          AND r.is_fontish
-          AND f.format IN ('ttf', 'otf', 'woff', 'woff2')
+        WHERE f.id = $1
+          AND ${publicFontVisibilityClauses().join("\n          AND ")}
         LIMIT 1
-      `) as FontRow[];
+      `;
+      const rows = (await ctx.sql.query(detailSql, [id])) as FontRow[];
 
       const row = rows[0];
       return row ? mapFont(row) : null;
@@ -677,7 +614,7 @@ builder.queryFields((t) => ({
       after: t.arg.string({ required: false }),
     },
     resolve: async (_root, args, ctx) => {
-      const first = clamp(args.first ?? DEFAULT_FIRST, 1, MAX_FIRST);
+      const first = requirePageSize(args.first);
       const filter = args.filter ?? {};
       const minStars = filter.minStars ?? 0;
       const owner = filter.owner?.trim() || null;
@@ -687,7 +624,7 @@ builder.queryFields((t) => ({
 
       const cursor = args.after ? decodeRepoCursor(args.after) : null;
       if (args.after && !cursor) {
-        throw new Error("Invalid cursor");
+        throw badUserInput("after must be a valid cursor");
       }
 
       const params: unknown[] = [];
@@ -696,21 +633,19 @@ builder.queryFields((t) => ({
         return `$${params.length}`;
       };
 
-      const where: string[] = [
-        `r.is_fontish`,
-        `NOT r.is_fork`,
-        `NOT r.is_archived`,
-        `r.stars >= ${push(minStars)}`,
-      ];
+      const where = publicRepoVisibilityClauses();
+      where.push(`r.stars >= ${push(minStars)}`);
 
       if (owner) {
         where.push(`o.login = ${push(owner)}`);
       }
       if (withFonts === true) {
-        where.push(`EXISTS (SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id)`);
+        where.push(
+          `EXISTS (SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id AND ${PUBLIC_RENDERABLE_REPO_FONT_CLAUSE})`,
+        );
       } else if (withFonts === false) {
         where.push(
-          `NOT EXISTS (SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id)`,
+          `NOT EXISTS (SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id AND ${PUBLIC_RENDERABLE_REPO_FONT_CLAUSE})`,
         );
       }
       if (qPattern) {
@@ -743,7 +678,9 @@ builder.queryFields((t) => ({
           r.default_branch,
           o.login AS owner_login,
           COALESCE(
-            (SELECT COUNT(*)::int FROM font_files ff WHERE ff.repo_id = r.id),
+            (SELECT COUNT(*)::int FROM font_files ff
+              WHERE ff.repo_id = r.id
+                AND ${PUBLIC_RENDERABLE_REPO_FONT_CLAUSE}),
             0
           ) AS font_count
         FROM repos r
@@ -759,20 +696,16 @@ builder.queryFields((t) => ({
         countParams.push(v);
         return `$${countParams.length}`;
       };
-      const countWhere: string[] = [
-        `r.is_fontish`,
-        `NOT r.is_fork`,
-        `NOT r.is_archived`,
-        `r.stars >= ${cpush(minStars)}`,
-      ];
+      const countWhere = publicRepoVisibilityClauses();
+      countWhere.push(`r.stars >= ${cpush(minStars)}`);
       if (owner) countWhere.push(`o.login = ${cpush(owner)}`);
       if (withFonts === true) {
         countWhere.push(
-          `EXISTS (SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id)`,
+          `EXISTS (SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id AND ${PUBLIC_RENDERABLE_REPO_FONT_CLAUSE})`,
         );
       } else if (withFonts === false) {
         countWhere.push(
-          `NOT EXISTS (SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id)`,
+          `NOT EXISTS (SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id AND ${PUBLIC_RENDERABLE_REPO_FONT_CLAUSE})`,
         );
       }
       if (qPattern) {
@@ -825,7 +758,7 @@ builder.queryFields((t) => ({
     },
     resolve: async (_root, args, ctx) => {
       const fullName = `${args.owner}/${args.name}`;
-      const rows = (await ctx.sql`
+      const detailSql = `
         SELECT
           r.id,
           r.full_name,
@@ -838,14 +771,18 @@ builder.queryFields((t) => ({
           r.default_branch,
           o.login AS owner_login,
           COALESCE(
-            (SELECT COUNT(*)::int FROM font_files ff WHERE ff.repo_id = r.id),
+            (SELECT COUNT(*)::int FROM font_files ff
+              WHERE ff.repo_id = r.id
+                AND ${PUBLIC_RENDERABLE_REPO_FONT_CLAUSE}),
             0
           ) AS font_count
         FROM repos r
         JOIN owners o ON o.id = r.owner_id
-        WHERE r.full_name = ${fullName}
+        WHERE r.full_name = $1
+          AND ${publicRepoVisibilityClauses().join("\n          AND ")}
         LIMIT 1
-      `) as RepoRow[];
+      `;
+      const rows = (await ctx.sql.query(detailSql, [fullName])) as RepoRow[];
       const row = rows[0];
       return row ? mapRepo(row) : null;
     },

@@ -8,13 +8,16 @@ export type GraphQLContext = {
 
 type BuilderConfig = {
   Context: GraphQLContext;
+  DefaultFieldNullability: false;
   Scalars: {
     ID: { Input: string; Output: string | number };
   };
 };
 
 function createBuilder() {
-  const b = new SchemaBuilder<BuilderConfig>({});
+  const b = new SchemaBuilder<BuilderConfig>({
+    defaultFieldNullability: false,
+  });
   b.queryType({});
   return b;
 }
