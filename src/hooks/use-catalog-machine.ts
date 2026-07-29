@@ -1,9 +1,10 @@
 "use client";
 
-import { startTransition, useCallback, useState } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useCallback, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useMachine } from "@xstate/react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useMountEffect } from "@/hooks/use-mount-effect";
 import {
   catalogMachine,
   type CatalogEvent,
@@ -12,18 +13,21 @@ import {
 import {
   parseCatalogSearchParams,
   serializeCatalogContext,
+  type CatalogUrlSlice,
 } from "@/machines/catalog-url";
 
 export type UseCatalogMachineOptions = {
   /** Override initial context (merged after URL parse). */
   input?: CatalogInput;
   /**
-   * When true (default), push serialised catalog context to the URL on
-   * every send via startTransition + router.replace — not useEffect.
+   * When true (default), replace serialised catalog context in the URL on
+   * every send.
    */
   syncUrl?: boolean;
-  /** When true (default), hydrate from current searchParams once as input. */
+  /** Hydrate from the initial URL and same-route browser history navigation. */
   hydrateFromUrl?: boolean;
+  /** Coordinate other catalog surfaces after browser history navigation. */
+  onUrlHydrate?: (slice: CatalogUrlSlice) => void;
 };
 
 function buildCatalogInput(args: {
@@ -66,10 +70,10 @@ export function useCatalogMachine(options: UseCatalogMachineOptions = {}) {
     input: inputOverride,
     syncUrl = true,
     hydrateFromUrl = true,
+    onUrlHydrate,
   } = options;
 
   const queryClient = useQueryClient();
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -86,6 +90,25 @@ export function useCatalogMachine(options: UseCatalogMachineOptions = {}) {
 
   const [snapshot, sendRaw, actorRef] = useMachine(catalogMachine, { input });
 
+  useMountEffect(() => {
+    if (!hydrateFromUrl) return;
+
+    const hydrateFromLocation = () => {
+      if (window.location.pathname !== pathname) return;
+
+      const slice = parseCatalogSearchParams(
+        new URLSearchParams(window.location.search),
+      );
+      sendRaw({ type: "HYDRATE_FROM_URL", slice });
+      onUrlHydrate?.(slice);
+    };
+
+    window.addEventListener("popstate", hydrateFromLocation);
+    return () => {
+      window.removeEventListener("popstate", hydrateFromLocation);
+    };
+  });
+
   const send = useCallback(
     (event: CatalogEvent) => {
       sendRaw(event);
@@ -95,12 +118,9 @@ export function useCatalogMachine(options: UseCatalogMachineOptions = {}) {
       const qs = serializeCatalogContext(next.context);
       const href = qs ? `${pathname}?${qs}` : pathname;
 
-      // Event-handler path only — not useEffect.
-      startTransition(() => {
-        router.replace(href, { scroll: false });
-      });
+      window.history.replaceState(null, "", href);
     },
-    [sendRaw, actorRef, syncUrl, pathname, router],
+    [sendRaw, actorRef, syncUrl, pathname],
   );
 
   return {

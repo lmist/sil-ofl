@@ -435,8 +435,7 @@ export const catalogMachine = setup({
           target: "ready",
           reenter: true,
           guard: ({ context }) =>
-            !context.isLoading &&
-            (context.cursorStack.length > 0 || context.after != null),
+            !context.isLoading && context.cursorStack.length > 0,
           actions: assign(({ context }) => {
             const stack = [...context.cursorStack];
             const prev = stack.pop();

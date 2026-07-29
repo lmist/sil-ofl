@@ -198,6 +198,51 @@ test.describe("catalog state invariants", () => {
     );
   });
 
+  test("never exposes selected surfaces before their URL identity", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await installInstantFontFace(page);
+    await openCatalog(page, mockGraphql);
+
+    const observedMismatch = await page.evaluate(async () => {
+      let mismatch = false;
+      const checkIdentity = () => {
+        const hasSelectedSurface = Boolean(
+          document.querySelector('[data-font-row][data-selected="true"]') ||
+            document.querySelector("[data-font-use-panel]"),
+        );
+        const selectedFont = new URL(window.location.href).searchParams.get(
+          "font",
+        );
+        if (hasSelectedSurface && selectedFont !== "101") {
+          mismatch = true;
+        }
+      };
+      const observer = new MutationObserver(checkIdentity);
+      observer.observe(document.body, {
+        attributes: true,
+        childList: true,
+        subtree: true,
+      });
+
+      document.querySelector<HTMLElement>("[data-font-row]")?.click();
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+
+      checkIdentity();
+      observer.disconnect();
+      return mismatch;
+    });
+
+    expect(observedMismatch).toBe(false);
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("font"))
+      .toBe("101");
+    await expect(page.locator("[data-font-use-panel]")).toContainText("Inter");
+  });
+
   test("locks pagination and consumes a delayed forward cursor once", async ({
     page,
     mockGraphql,
@@ -285,27 +330,137 @@ test.describe("catalog state invariants", () => {
     expect(new URL(page.url()).searchParams.get("font")).toBe("201");
   });
 
-  test("a direct cursor link exposes truthful page and previous navigation", async ({
+  test("an unresolved font deep link removes only the invalid identity", async ({
     page,
     mockGraphql,
   }) => {
+    await installInstantFontFace(page);
     await mockGraphql();
-    await page.goto(`/?after=${encodeURIComponent(PAGE1_CURSOR)}`);
+    await page.goto("/?q=Inter&font=999");
+    await expect(page.locator(ROW).first()).toBeVisible();
+
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("font"))
+      .toBeNull();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("q"))
+      .toBe("Inter");
+    await expect(page.getByLabel("Search fonts")).toHaveValue("Inter");
+    await expect(page.locator(`${ROW}[data-selected="true"]`)).toHaveCount(0);
+    await expect(page.locator("[data-font-use-panel]")).toHaveCount(0);
+    await expect(page.locator("[data-font-specimen]")).toContainText(
+      "Font not found",
+    );
+  });
+
+  test("a direct opaque cursor exposes unknown position without fabricated history", async ({
+    page,
+    mockGraphql,
+  }) => {
+    const opaqueCursor = "opaque-deep-cursor";
+    await mockGraphql();
+    await page.goto(`/?after=${encodeURIComponent(opaqueCursor)}`);
+    await expect(page.locator(`${ROW} [data-font-row-name]`).first()).toContainText(
+      "Inter",
+    );
+
+    await expect(page.getByText("Page unknown", { exact: true })).toBeVisible();
+    const previous = page.getByRole("button", { name: "Previous page" });
+    await expect(previous).toBeDisabled();
+
+    await page.getByRole("button", { name: "Next page" }).click();
     await expect(page.locator(`${ROW} [data-font-row-name]`).first()).toContainText(
       "JetBrains Mono",
     );
-
-    await expect(page.getByText("Page 2", { exact: true })).toBeVisible();
-    const previous = page.getByRole("button", { name: "Previous page" });
+    await expect(page.getByText("Page unknown", { exact: true })).toBeVisible();
     await expect(previous).toBeEnabled();
+    expect(new URL(page.url()).searchParams.get("after")).toBe(PAGE1_CURSOR);
 
     await previous.click();
     await expect(page.locator(`${ROW} [data-font-row-name]`).first()).toContainText(
       "Inter",
     );
+    await expect(page.getByText("Page unknown", { exact: true })).toBeVisible();
+    await expect(previous).toBeDisabled();
+    expect(new URL(page.url()).searchParams.get("after")).toBe(opaqueCursor);
+  });
+
+  test("Back and Forward hydrate URL state without resetting session state", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await installInstantFontFace(page);
+    await openCatalog(page, mockGraphql);
+
+    const denseMode = page.getByRole("button", {
+      name: "Dense table mode",
+    });
+    const specimenText = page.getByLabel("Editable specimen text");
+    await denseMode.click();
+    await specimenText.fill("History keeps this specimen");
+
+    const fullState = new URLSearchParams({
+      q: "JetBrains",
+      format: "ttf",
+      owner: "JetBrains",
+      after: PAGE1_CURSOR,
+      sort: "STARS_ASC",
+      font: "201",
+    });
+    await page.evaluate((query) => {
+      window.history.pushState(null, "", `/?${query}`);
+    }, fullState.toString());
+
+    await page.goBack();
     await expect
-      .poll(() => new URL(page.url()).searchParams.get("after"))
-      .toBeNull();
+      .poll(() => new URL(page.url()).searchParams.toString())
+      .toBe("");
+
+    await page.goForward();
+
+    await expect(page.getByLabel("Search fonts")).toHaveValue("JetBrains");
+    await expect(page.getByLabel("Format", { exact: true })).toHaveValue(
+      "ttf",
+    );
+    await expect(page.getByLabel("Owner", { exact: true })).toHaveValue(
+      "JetBrains",
+    );
+    await expect(page.getByLabel("Sort")).toHaveValue("STARS_ASC");
+    await expect(page.getByText("Page unknown", { exact: true })).toBeVisible();
+    await expect(
+      page.locator('[data-dense-font-table] [data-selected="true"]'),
+    ).toContainText("JetBrains Mono");
+    await expect(page.locator("[data-font-specimen]")).toContainText(
+      "JetBrains Mono",
+    );
+    await expect(page.locator("[data-font-use-panel]")).toContainText(
+      "JetBrains Mono",
+    );
+    await expect(denseMode).toHaveAttribute("aria-pressed", "true");
+    await expect(specimenText).toHaveValue("History keeps this specimen");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.toString())
+      .toBe(fullState.toString());
+
+    await page.goBack();
+
+    await expect(page.getByLabel("Search fonts")).toHaveValue("");
+    await expect(page.getByLabel("Format", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Owner", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Sort")).toHaveValue("REPUTATION_DESC");
+    await expect(page.getByText("Page 1", { exact: true })).toBeVisible();
+    await expect(
+      page.locator('[data-dense-font-table] [data-selected="true"]'),
+    ).toHaveCount(0);
+    await expect(page.locator("[data-font-specimen]")).toContainText(
+      "Select a face",
+    );
+    await expect(page.locator("[data-font-use-panel]")).toHaveCount(0);
+    await expect(denseMode).toHaveAttribute("aria-pressed", "true");
+    await expect(specimenText).toHaveValue("History keeps this specimen");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.toString())
+      .toBe("");
   });
 
   test("Space activates the focused virtualized row coherently", async ({

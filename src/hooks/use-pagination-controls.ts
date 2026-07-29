@@ -8,6 +8,7 @@ import { useFontCatalogShellContext } from "@/hooks/use-font-catalog-shell";
  */
 export function usePaginationControls() {
   const shell = useFontCatalogShellContext();
+  const { after, cursorStack } = shell.catalog.context;
 
   const rootProps = useMemo(
     () =>
@@ -21,19 +22,10 @@ export function usePaginationControls() {
 
   const pageLabel = useMemo(() => {
     if (!shell.connection) return "—";
-    const stackDepth = shell.catalog.context.cursorStack.length;
-    const page =
-      stackDepth > 0
-        ? stackDepth + 1
-        : shell.catalog.context.after != null
-          ? 2
-          : 1;
-    return `Page ${page}`;
-  }, [
-    shell.connection,
-    shell.catalog.context.cursorStack.length,
-    shell.catalog.context.after,
-  ]);
+    if (after == null) return "Page 1";
+    if (cursorStack[0] !== "") return "Page unknown";
+    return `Page ${cursorStack.length + 1}`;
+  }, [shell.connection, cursorStack, after]);
 
   return {
     rootProps,

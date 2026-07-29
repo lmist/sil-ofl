@@ -24,6 +24,7 @@ import {
   toFontsFilter,
 } from "@/machines/catalog-machine";
 import type { CatalogEvent } from "@/machines/catalog-machine";
+import type { CatalogUrlSlice } from "@/machines/catalog-url";
 import type { FontFile, FontSort } from "@/types/catalog";
 
 export const DEFAULT_SPECIMEN_TEXT =
@@ -52,14 +53,36 @@ export function useFontCatalogShellContext(): FontCatalogShellContextValue {
  * Policy stays in components.
  */
 export function useFontCatalogShell() {
-  const catalog = useCatalogMachine();
   const specimen = useSpecimenMachine();
+  const specimenActorRef = specimen.actorRef;
+  const sendSpecimen = specimen.send;
   const statsQuery = useCatalogStatsQuery();
   const [specimenText, setSpecimenText] = useState(DEFAULT_SPECIMEN_TEXT);
   const [denseMode, setDenseMode] = useState(false);
   const [selectedFontCache, setSelectedFontCache] =
     useState<FontFile | null>(null);
 
+  const onUrlHydrate = useCallback(
+    (slice: CatalogUrlSlice) => {
+      const selectedFontId = slice.selectedFontId;
+      setSelectedFontCache((cached) =>
+        selectedFontId != null && cached?.fontFileId === selectedFontId
+          ? cached
+          : null,
+      );
+
+      const specimenFontId =
+        specimenActorRef.getSnapshot().context.fontId;
+      if (selectedFontId == null) {
+        sendSpecimen({ type: "CLEAR" });
+      } else if (specimenFontId !== selectedFontId) {
+        sendSpecimen({ type: "LOAD_BY_ID", fontId: selectedFontId });
+      }
+    },
+    [specimenActorRef, sendSpecimen],
+  );
+
+  const catalog = useCatalogMachine({ onUrlHydrate });
   const { context, error, send, matches } = catalog;
 
   // GraphQL / query variables mirror catalogMachine context exactly.
@@ -113,8 +136,30 @@ export function useFontCatalogShell() {
   const totalCount = connection?.totalCount ?? 0;
   const hasNext = connection?.pageInfo.hasNextPage ?? false;
   const endCursor = connection?.pageInfo.endCursor ?? null;
-  const canPrev = context.cursorStack.length > 0 || context.after != null;
+  const canPrev = context.cursorStack.length > 0;
   const selectedFontId = context.selectedFontId;
+
+  useMountEffect(() => {
+    const subscription = specimen.actorRef.subscribe((snapshot) => {
+      const missingSelectedFont =
+        snapshot.matches("error") &&
+        snapshot.context.error === "Font not found" &&
+        snapshot.context.cdnUrl == null &&
+        snapshot.context.font == null &&
+        snapshot.context.fontId != null &&
+        catalog.actorRef.getSnapshot().context.selectedFontId ===
+          snapshot.context.fontId;
+
+      if (!missingSelectedFont) return;
+
+      setSelectedFontCache(null);
+      catalog.send({ type: "DESELECT" });
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  });
 
   useMountEffect(() => {
     if (selectedFontId != null) {

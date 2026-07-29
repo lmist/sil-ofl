@@ -155,6 +155,24 @@ describe("catalogMachine", () => {
     assert.equal(actor.getSnapshot().context.after, null);
   });
 
+  it("does not fabricate a previous page for an unanchored cursor", async () => {
+    const machine = catalogMachine.provide({
+      actors: {
+        loadFonts: fromPromise(async () => emptyConnection),
+      },
+    });
+    const actor = createActor(machine, {
+      input: { after: "opaque-deep-cursor" },
+    });
+    actor.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    actor.send({ type: "PREV_PAGE" });
+
+    assert.equal(actor.getSnapshot().context.after, "opaque-deep-cursor");
+    assert.deepEqual(actor.getSnapshot().context.cursorStack, []);
+  });
+
   it("SET_FILTER / CLEAR_FILTERS / SET_SORT reset pagination", () => {
     const { actor } = createTestCatalog();
     actor.send({ type: "NEXT_PAGE", endCursor: "c1" });
