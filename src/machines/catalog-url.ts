@@ -1,4 +1,5 @@
 import type { FontSort } from "@/types/catalog";
+import { parsePositiveSafeInteger } from "@/lib/positive-safe-integer";
 import type { CatalogContext, CatalogFilters } from "./catalog-machine";
 
 /** URL query keys for catalog state (Next App Router searchParams). */
@@ -44,7 +45,7 @@ export function parseCatalogSearchParams(
   const sort = params.get(CATALOG_URL_KEYS.sort);
   const after = params.get(CATALOG_URL_KEYS.after);
   const font = params.get(CATALOG_URL_KEYS.font);
-  const fontId = font == null || font === "" ? null : Number(font);
+  const fontId = parsePositiveSafeInteger(font);
 
   return {
     q: params.get(CATALOG_URL_KEYS.q) ?? "",
@@ -54,13 +55,7 @@ export function parseCatalogSearchParams(
     },
     sort: sort && isFontSort(sort) ? sort : "REPUTATION_DESC",
     after: after == null || after === "" ? null : after,
-    selectedFontId:
-      fontId != null &&
-      Number.isSafeInteger(fontId) &&
-      fontId > 0 &&
-      fontId <= 2_147_483_647
-        ? fontId
-        : null,
+    selectedFontId: fontId,
   };
 }
 

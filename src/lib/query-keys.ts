@@ -1,4 +1,16 @@
-import type { FontsFilter } from "@/types/catalog";
+import type { FontsFilter, FontSort } from "@/types/catalog";
+
+export type NormalizedFontsFilter = {
+  q: string | null;
+  owner: string | null;
+  format: string[] | null;
+  minStars: number | null;
+  webfont: boolean | null;
+  variable: boolean | null;
+  first: number;
+  after: string | null;
+  sort: FontSort;
+};
 
 /** Fonts list: long enough to absorb filter flickers; short enough for FTS freshness. */
 export const FONTS_STALE_TIME_MS = 60_000;
@@ -26,7 +38,9 @@ export const queryKeys = {
 } as const;
 
 /** Stable filter shape for cache keys (mirrors GraphQL variable defaults). */
-export function normalizeFontsFilterKey(filter: FontsFilter): FontsFilter {
+export function normalizeFontsFilterKey(
+  filter: FontsFilter,
+): NormalizedFontsFilter {
   return {
     q: filter.q ?? null,
     owner: filter.owner ?? null,

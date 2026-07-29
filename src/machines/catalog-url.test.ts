@@ -84,4 +84,49 @@ describe("catalog-url", () => {
     assert.equal(slice.after, original.after);
     assert.equal(slice.selectedFontId, original.selectedFontId);
   });
+
+  it("round-trips positive-safe font IDs above the GraphQL Int range", () => {
+    for (const selectedFontId of [
+      2_147_483_648,
+      Number.MAX_SAFE_INTEGER,
+    ]) {
+      const query = serializeCatalogContext({
+        q: "",
+        filters: { ...defaultCatalogFilters },
+        sort: "REPUTATION_DESC",
+        after: null,
+        selectedFontId,
+      });
+
+      assert.equal(
+        parseCatalogSearchParams(new URLSearchParams(query)).selectedFontId,
+        selectedFontId,
+      );
+    }
+  });
+
+  it("rejects non-canonical and unsafe font IDs", () => {
+    for (const font of [
+      "0",
+      "-1",
+      "1.5",
+      "01",
+      "+1",
+      "1e1",
+      " 1 ",
+      "0x10",
+      "NaN",
+      "Infinity",
+      "9007199254740992",
+      "999999999999999999999999999999",
+    ]) {
+      assert.equal(
+        parseCatalogSearchParams(
+          new URLSearchParams({ font }),
+        ).selectedFontId,
+        null,
+        `font=${JSON.stringify(font)} should be rejected`,
+      );
+    }
+  });
 });

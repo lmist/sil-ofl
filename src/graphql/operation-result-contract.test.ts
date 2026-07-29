@@ -4,14 +4,19 @@ import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import {
   Kind,
+  isEnumType,
+  isInputType,
+  isInputObjectType,
   isListType,
   isNonNullType,
   isObjectType,
   isScalarType,
   parse,
+  type GraphQLInputType,
   type GraphQLObjectType,
   type GraphQLOutputType,
   type SelectionSetNode,
+  type TypeNode,
 } from "graphql";
 import ts from "typescript";
 import {
@@ -26,18 +31,44 @@ import { schema } from "@/graphql/schema";
 
 type Contract =
   | { kind: "list"; item: Contract }
+  | { kind: "literal"; value: string }
   | { kind: "null" }
   | { kind: "object"; fields: Record<string, Contract> }
   | { kind: "scalar"; type: "boolean" | "number" | "string" }
+  | { kind: "undefined" }
   | { kind: "union"; members: Contract[] };
 
 const operationTypes = [
-  { document: HEALTH_QUERY, resultType: "HealthQueryResult" },
-  { document: STATS_QUERY, resultType: "StatsQueryResult" },
-  { document: FONTS_QUERY, resultType: "FontsQueryResult" },
-  { document: FONT_QUERY, resultType: "FontQueryResult" },
-  { document: REPOS_QUERY, resultType: "ReposQueryResult" },
-  { document: REPO_QUERY, resultType: "RepoQueryResult" },
+  {
+    document: HEALTH_QUERY,
+    resultType: "HealthQueryResult",
+    variablesType: null,
+  },
+  {
+    document: STATS_QUERY,
+    resultType: "StatsQueryResult",
+    variablesType: null,
+  },
+  {
+    document: FONTS_QUERY,
+    resultType: "FontsQueryResult",
+    variablesType: "FontsQueryVariables",
+  },
+  {
+    document: FONT_QUERY,
+    resultType: "FontQueryResult",
+    variablesType: "FontQueryVariables",
+  },
+  {
+    document: REPOS_QUERY,
+    resultType: "ReposQueryResult",
+    variablesType: "ReposQueryVariables",
+  },
+  {
+    document: REPO_QUERY,
+    resultType: "RepoQueryResult",
+    variablesType: "RepoQueryVariables",
+  },
 ] as const;
 
 const documentsSource = ts.createSourceFile(
@@ -59,6 +90,22 @@ describe("GraphQL operation result types", () => {
       assert.deepEqual(
         typeScriptResultContract(resultType),
         graphQLResultContract(document),
+      );
+    });
+  }
+});
+
+describe("GraphQL operation variable types", () => {
+  for (const { document, resultType, variablesType } of operationTypes) {
+    it(`keeps ${variablesType ?? `${resultType} variables`} aligned with its executable operation`, () => {
+      const expected = graphQLVariablesContract(document);
+      if (variablesType === null) {
+        assert.deepEqual(expected, objectContract({}));
+        return;
+      }
+      assert.deepEqual(
+        typeScriptVariablesContract(variablesType),
+        expected,
       );
     });
   }
@@ -148,15 +195,122 @@ function scalarContract(name: string): Contract {
   throw new Error(`GraphQL scalar ${name} needs an explicit client mapping`);
 }
 
+function graphQLVariablesContract(document: string): Contract {
+  const operation = parse(document).definitions.find(
+    (definition) => definition.kind === Kind.OPERATION_DEFINITION,
+  );
+  assert.ok(operation, "operation document must contain an operation");
+
+  return objectContract(
+    Object.fromEntries(
+      (operation.variableDefinitions ?? []).map((definition) => {
+        let contract = graphQLTypeNodeContract(definition.type);
+        if (
+          definition.type.kind !== Kind.NON_NULL_TYPE ||
+          definition.defaultValue !== undefined
+        ) {
+          contract = unionContract([{ kind: "undefined" }, contract]);
+        }
+        return [definition.variable.name.value, contract];
+      }),
+    ),
+  );
+}
+
+function graphQLTypeNodeContract(node: TypeNode): Contract {
+  if (node.kind === Kind.NON_NULL_TYPE) {
+    return graphQLNonNullTypeNodeContract(node.type);
+  }
+  return unionContract([
+    { kind: "null" },
+    graphQLNonNullTypeNodeContract(node),
+  ]);
+}
+
+function graphQLNonNullTypeNodeContract(
+  node: Exclude<TypeNode, { kind: typeof Kind.NON_NULL_TYPE }>,
+): Contract {
+  if (node.kind === Kind.LIST_TYPE) {
+    return { kind: "list", item: graphQLTypeNodeContract(node.type) };
+  }
+
+  const type = schema.getType(node.name.value);
+  assert.ok(
+    type && isInputType(type),
+    `GraphQL input type ${node.name.value} must exist`,
+  );
+  return graphQLNamedInputContract(type);
+}
+
+function graphQLInputContract(type: GraphQLInputType): Contract {
+  if (isNonNullType(type)) {
+    return graphQLNonNullInputContract(type.ofType);
+  }
+  return unionContract([
+    { kind: "null" },
+    graphQLNonNullInputContract(type),
+  ]);
+}
+
+function graphQLNonNullInputContract(type: GraphQLInputType): Contract {
+  if (isNonNullType(type)) {
+    return graphQLNonNullInputContract(type.ofType);
+  }
+  if (isListType(type)) {
+    return { kind: "list", item: graphQLInputContract(type.ofType) };
+  }
+  return graphQLNamedInputContract(type);
+}
+
+function graphQLNamedInputContract(
+  type: GraphQLInputType,
+): Contract {
+  if (isNonNullType(type)) {
+    return graphQLNamedInputContract(type.ofType);
+  }
+  if (isListType(type)) {
+    return { kind: "list", item: graphQLInputContract(type.ofType) };
+  }
+  if (isScalarType(type)) return scalarContract(type.name);
+  if (isEnumType(type)) {
+    return unionContract(
+      type
+        .getValues()
+        .map(({ name }) => ({ kind: "literal", value: name }) as const),
+    );
+  }
+  if (isInputObjectType(type)) {
+    return objectContract(
+      Object.fromEntries(
+        Object.entries(type.getFields()).map(([name, field]) => {
+          let contract = graphQLInputContract(field.type);
+          if (!isNonNullType(field.type) || field.defaultValue !== undefined) {
+            contract = unionContract([{ kind: "undefined" }, contract]);
+          }
+          return [name, contract];
+        }),
+      ),
+    );
+  }
+  throw new Error(`Unsupported GraphQL input type: ${type}`);
+}
+
 function typeScriptResultContract(name: string): Contract {
   const type = typeAliases.get(name);
   assert.ok(type, `documents.ts must export type ${name}`);
-  return typeScriptTypeContract(type, new Set([name]));
+  return typeScriptTypeContract(type, new Set([name]), false);
+}
+
+function typeScriptVariablesContract(name: string): Contract {
+  const type = typeAliases.get(name);
+  assert.ok(type, `documents.ts must export type ${name}`);
+  return typeScriptTypeContract(type, new Set([name]), true);
 }
 
 function typeScriptTypeContract(
   node: ts.TypeNode,
   resolving: Set<string>,
+  allowOptionalProperties: boolean,
 ): Contract {
   if (node.kind === ts.SyntaxKind.StringKeyword) {
     return { kind: "scalar", type: "string" };
@@ -168,23 +322,42 @@ function typeScriptTypeContract(
     return { kind: "scalar", type: "boolean" };
   }
   if (ts.isParenthesizedTypeNode(node)) {
-    return typeScriptTypeContract(node.type, resolving);
+    return typeScriptTypeContract(
+      node.type,
+      resolving,
+      allowOptionalProperties,
+    );
   }
-  if (
-    ts.isLiteralTypeNode(node) &&
-    node.literal.kind === ts.SyntaxKind.NullKeyword
-  ) {
-    return { kind: "null" };
+  if (ts.isLiteralTypeNode(node)) {
+    if (node.literal.kind === ts.SyntaxKind.NullKeyword) {
+      return { kind: "null" };
+    }
+    if (ts.isStringLiteral(node.literal)) {
+      return { kind: "literal", value: node.literal.text };
+    }
+  }
+  if (node.kind === ts.SyntaxKind.UndefinedKeyword) {
+    return { kind: "undefined" };
   }
   if (ts.isUnionTypeNode(node)) {
     return unionContract(
-      node.types.map((member) => typeScriptTypeContract(member, resolving)),
+      node.types.map((member) =>
+        typeScriptTypeContract(
+          member,
+          resolving,
+          allowOptionalProperties,
+        ),
+      ),
     );
   }
   if (ts.isArrayTypeNode(node)) {
     return {
       kind: "list",
-      item: typeScriptTypeContract(node.elementType, resolving),
+      item: typeScriptTypeContract(
+        node.elementType,
+        resolving,
+        allowOptionalProperties,
+      ),
     };
   }
   if (ts.isTypeLiteralNode(node)) {
@@ -192,17 +365,24 @@ function typeScriptTypeContract(
     for (const member of node.members) {
       assert.ok(
         ts.isPropertySignature(member) && member.type,
-        "result types may only contain typed properties",
+        "operation types may only contain typed properties",
       );
-      assert.equal(
-        member.questionToken,
-        undefined,
-        "selected GraphQL result properties cannot be optional",
-      );
-      fields[propertyName(member.name)] = typeScriptTypeContract(
+      if (!allowOptionalProperties) {
+        assert.equal(
+          member.questionToken,
+          undefined,
+          "selected GraphQL result properties cannot be optional",
+        );
+      }
+      let contract = typeScriptTypeContract(
         member.type,
         resolving,
+        allowOptionalProperties,
       );
+      if (member.questionToken) {
+        contract = unionContract([{ kind: "undefined" }, contract]);
+      }
+      fields[propertyName(member.name)] = contract;
     }
     return objectContract(fields);
   }
@@ -212,7 +392,11 @@ function typeScriptTypeContract(
       assert.equal(node.typeArguments?.length, 1);
       return {
         kind: "list",
-        item: typeScriptTypeContract(node.typeArguments[0]!, resolving),
+        item: typeScriptTypeContract(
+          node.typeArguments[0]!,
+          resolving,
+          allowOptionalProperties,
+        ),
       };
     }
 
@@ -221,7 +405,11 @@ function typeScriptTypeContract(
     assert.ok(!resolving.has(name), `recursive result type ${name} is unsupported`);
     const nextResolving = new Set(resolving);
     nextResolving.add(name);
-    return typeScriptTypeContract(referenced, nextResolving);
+    return typeScriptTypeContract(
+      referenced,
+      nextResolving,
+      allowOptionalProperties,
+    );
   }
 
   throw new Error(

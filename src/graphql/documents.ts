@@ -225,6 +225,10 @@ export type FontQueryResult = {
   font: FontNode | null;
 };
 
+export type FontQueryVariables = {
+  id: string;
+};
+
 export type RepoNode = {
   id: string;
   fullName: string;
@@ -262,4 +266,9 @@ export type ReposQueryVariables = {
 
 export type RepoQueryResult = {
   repo: RepoNode | null;
+};
+
+export type RepoQueryVariables = {
+  owner: string;
+  name: string;
 };

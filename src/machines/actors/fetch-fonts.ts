@@ -5,7 +5,9 @@ import {
   FONTS_QUERY,
   FONT_QUERY,
   type FontsQueryResult,
+  type FontsQueryVariables,
   type FontQueryResult,
+  type FontQueryVariables,
   type FontNode,
 } from "@/graphql/documents";
 import type { FontConnection, FontsFilter, FontSort } from "@/types/catalog";
@@ -28,7 +30,10 @@ export async function fetchFontsPage(
 ): Promise<FontConnection> {
   const key = normalizeFontsFilterKey(filter);
   const client = getGraphqlClient();
-  const data = await client.request<FontsQueryResult>({
+  const data = await client.request<
+    FontsQueryResult,
+    FontsQueryVariables
+  >({
     document: FONTS_QUERY,
     variables: {
       filter: {
@@ -77,7 +82,10 @@ export async function fetchFontById(
   signal?: AbortSignal,
 ): Promise<FontNode | null> {
   const client = getGraphqlClient();
-  const data = await client.request<FontQueryResult>({
+  const data = await client.request<
+    FontQueryResult,
+    FontQueryVariables
+  >({
     document: FONT_QUERY,
     variables: { id: String(id) },
     signal,

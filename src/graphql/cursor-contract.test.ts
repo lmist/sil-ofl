@@ -4,6 +4,7 @@ import {
   decodeFontCursor,
   decodeRepoCursor,
   encodeFontCursor,
+  encodeRepoCursor,
 } from "./schema/cursor";
 import { fontKeyset, fontOrderBy } from "./schema/font-pagination";
 
@@ -234,6 +235,117 @@ describe("font cursor contract", () => {
     ]) {
       assert.equal(
         decodeRepoCursor(encodeRaw(JSON.stringify(payload))),
+        null,
+      );
+    }
+  });
+
+  it("rejects non-canonical base64url cursor encodings", () => {
+    const fontCursor = encodeFontCursor({
+      v: 2,
+      rep: 1,
+      stars: 2,
+      family: "Alpha",
+      id: 3,
+    });
+    const repoCursor = encodeRepoCursor({
+      v: 1,
+      rep: 1,
+      stars: 2,
+      name: "owner/repo",
+      id: 3,
+    });
+
+    for (const malformed of [
+      `${fontCursor}!`,
+      `${fontCursor}%`,
+      `${fontCursor}=`,
+      `${fontCursor}\n`,
+      ` ${fontCursor}`,
+    ]) {
+      assert.equal(decodeFontCursor(malformed), null, malformed);
+    }
+    for (const malformed of [
+      `${repoCursor}!`,
+      `${repoCursor}%`,
+      `${repoCursor}=`,
+      `${repoCursor}\n`,
+      ` ${repoCursor}`,
+    ]) {
+      assert.equal(decodeRepoCursor(malformed), null, malformed);
+    }
+
+    assert.equal(
+      decodeFontCursor(
+        "eyJ2IjoyLCJyZXAiOjEsInN0YXJzIjoyLCJmYW1pbHkiOiJBbHBoYSIsImlkIjozfR",
+      ),
+      null,
+      "unused trailing bits must use the canonical base64url spelling",
+    );
+  });
+
+  it("rejects ill-formed cursor text while preserving valid Unicode", () => {
+    const family = "Noto 😀";
+    const name = "fonts/😀";
+    assert.equal(
+      decodeFontCursor(
+        encodeFontCursor({
+          v: 2,
+          rep: 1,
+          stars: 2,
+          family,
+          id: 3,
+        }),
+      )?.family,
+      family,
+    );
+    assert.equal(
+      decodeRepoCursor(
+        encodeRepoCursor({
+          v: 1,
+          rep: 1,
+          stars: 2,
+          name,
+          id: 3,
+        }),
+      )?.name,
+      name,
+    );
+
+    for (const invalidText of [
+      "\uD800",
+      "\uDC00",
+      "before\uD800after",
+      "before\uDC00after",
+      "\uD800\uD800",
+      "\uDC00\uDC00",
+    ]) {
+      assert.equal(
+        decodeFontCursor(
+          encodeRaw(
+            JSON.stringify({
+              v: 2,
+              rep: 1,
+              stars: 2,
+              family: invalidText,
+              id: 3,
+            }),
+          ),
+        ),
+        null,
+      );
+      assert.equal(
+        decodeRepoCursor(
+          encodeRaw(
+            JSON.stringify({
+              v: 1,
+              rep: 1,
+              stars: 2,
+              name: invalidText,
+              id: 3,
+            }),
+          ),
+        ),
         null,
       );
     }

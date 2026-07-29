@@ -3,6 +3,14 @@
  * Format: base64url(JSON) — never expose raw offsets for deep pages.
  */
 
+import { isPositiveSafeInteger } from "@/lib/positive-safe-integer";
+import { isDatabaseText } from "./database-text";
+
+export {
+  isPositiveSafeInteger,
+  parsePositiveSafeInteger,
+} from "@/lib/positive-safe-integer";
+
 export type FontCursorPayload = {
   v: 2;
   /** sort field values used for keyset comparison */
@@ -29,13 +37,20 @@ function b64urlEncode(json: string): string {
 }
 
 function b64urlDecode(cursor: string): string {
-  const pad = cursor.length % 4 === 0 ? "" : "=".repeat(4 - (cursor.length % 4));
-  const b64 = cursor.replace(/-/g, "+").replace(/_/g, "/") + pad;
-  return Buffer.from(b64, "base64").toString("utf8");
-}
+  if (!/^[A-Za-z0-9_-]+$/.test(cursor) || cursor.length % 4 === 1) {
+    throw new Error("cursor must use unpadded base64url");
+  }
 
-function isSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value);
+  const bytes = Buffer.from(cursor, "base64url");
+  if (bytes.toString("base64url") !== cursor) {
+    throw new Error("cursor must use canonical base64url");
+  }
+
+  const decoded = bytes.toString("utf8");
+  if (!Buffer.from(decoded, "utf8").equals(bytes)) {
+    throw new Error("cursor must contain valid UTF-8");
+  }
+  return decoded;
 }
 
 function isSignedInt32(value: unknown): value is number {
@@ -45,22 +60,6 @@ function isSignedInt32(value: unknown): value is number {
     value >= -2_147_483_648 &&
     value <= 2_147_483_647
   );
-}
-
-function isNulFree(value: string): boolean {
-  return !value.includes("\0");
-}
-
-export function isPositiveSafeInteger(value: unknown): value is number {
-  return isSafeInteger(value) && value > 0;
-}
-
-export function parsePositiveSafeInteger(value: unknown): number | null {
-  if (isPositiveSafeInteger(value)) return value;
-  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return null;
-
-  const parsed = Number(value);
-  return isPositiveSafeInteger(parsed) ? parsed : null;
 }
 
 export function encodeFontCursor(p: FontCursorPayload): string {
@@ -76,7 +75,7 @@ export function decodeFontCursor(cursor: string): FontCursorPayload | null {
       !isSignedInt32(raw.rep) ||
       !isSignedInt32(raw.stars) ||
       (raw.family !== null &&
-        (typeof raw.family !== "string" || !isNulFree(raw.family)))
+        (typeof raw.family !== "string" || !isDatabaseText(raw.family)))
     ) {
       return null;
     }
@@ -105,7 +104,7 @@ export function decodeRepoCursor(cursor: string): RepoCursorPayload | null {
       !isSignedInt32(raw.rep) ||
       !isSignedInt32(raw.stars) ||
       typeof raw.name !== "string" ||
-      !isNulFree(raw.name)
+      !isDatabaseText(raw.name)
     ) {
       return null;
     }
