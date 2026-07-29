@@ -104,9 +104,9 @@ export function useFontUsePanel() {
     () =>
       ({
         type: "button" as const,
-        disabled: !snippets,
+        disabled: !snippets?.css,
         onClick: () => {
-          if (snippets && fontId != null) {
+          if (snippets?.css && fontId != null) {
             void copyText("css", snippets.css, fontId);
           }
         },
@@ -119,9 +119,9 @@ export function useFontUsePanel() {
     () =>
       ({
         type: "button" as const,
-        disabled: !snippets,
+        disabled: !snippets?.html,
         onClick: () => {
-          if (snippets && fontId != null) {
+          if (snippets?.html && fontId != null) {
             void copyText("html", snippets.html, fontId);
           }
         },
@@ -134,9 +134,9 @@ export function useFontUsePanel() {
     () =>
       ({
         type: "button" as const,
-        disabled: !snippets,
+        disabled: !snippets?.react,
         onClick: () => {
-          if (snippets && fontId != null) {
+          if (snippets?.react && fontId != null) {
             void copyText("react", snippets.react, fontId);
           }
         },
@@ -149,9 +149,9 @@ export function useFontUsePanel() {
     () =>
       ({
         type: "button" as const,
-        disabled: !snippets,
+        disabled: !snippets?.cdnUrl,
         onClick: () => {
-          if (snippets && fontId != null) {
+          if (snippets?.cdnUrl && fontId != null) {
             void copyText("cdn", snippets.cdnUrl, fontId);
           }
         },
@@ -164,9 +164,9 @@ export function useFontUsePanel() {
     () =>
       ({
         type: "button" as const,
-        disabled: !snippets,
+        disabled: !snippets?.rawUrl,
         onClick: () => {
-          if (snippets && fontId != null) {
+          if (snippets?.rawUrl && fontId != null) {
             void copyText("raw", snippets.rawUrl, fontId);
           }
         },
@@ -177,7 +177,7 @@ export function useFontUsePanel() {
 
   const downloadProps = useMemo(
     () =>
-      snippets
+      snippets?.downloadUrl
         ? ({
             href: snippets.downloadUrl,
             download: font?.fileName ?? true,
@@ -191,7 +191,7 @@ export function useFontUsePanel() {
 
   const repoProps = useMemo(
     () =>
-      snippets
+      snippets?.repoUrl
         ? ({
             href: snippets.repoUrl,
             target: "_blank" as const,

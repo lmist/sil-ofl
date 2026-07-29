@@ -1,4 +1,5 @@
 import { fromPromise } from "xstate";
+import { approvedExternalUrl } from "@/lib/external-url-policy";
 
 export type LoadFontFaceInput = {
   /** CSS font-family name to register */
@@ -40,12 +41,12 @@ export async function loadFontFace(
     throw new Error("FontFace API is not available in this environment");
   }
 
-  const sources = [input.cdnUrl, input.rawUrl].filter(
-    (u): u is string => typeof u === "string" && u.length > 0,
-  );
-  if (sources.length === 0) {
-    throw new Error("No font URL provided");
+  const cdnUrl = approvedExternalUrl(input.cdnUrl, "fontCdn");
+  if (!cdnUrl) {
+    throw new Error("Font CDN URL is unavailable");
   }
+  const rawUrl = approvedExternalUrl(input.rawUrl, "fontRaw");
+  const sources = [cdnUrl, rawUrl].filter((url): url is string => url != null);
 
   const hint = formatHint(input.format);
   let lastError: unknown;
@@ -89,9 +90,13 @@ export async function loadFontFace(
     }
   }
 
-  throw lastError instanceof Error
+  if (input.rawUrl && !rawUrl) {
+    throw new Error("Font raw fallback URL is unavailable");
+  }
+
+  throw lastError instanceof DOMException && lastError.name === "AbortError"
     ? lastError
-    : new Error("Failed to load font face");
+    : new Error("Font face is unavailable");
 }
 
 export const loadFontFaceLogic = fromPromise<

@@ -41,6 +41,16 @@ export function FontUsePanel({ className }: { className?: string }) {
         </p>
       </div>
 
+      {s.policyError ? (
+        <p
+          data-external-url-error
+          role="alert"
+          className="mb-3 text-[0.75rem] text-muted-foreground"
+        >
+          {s.policyError} Choose another font.
+        </p>
+      ) : null}
+
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[0.8125rem]">
         <ActionButton
           {...panel.copyCssProps}

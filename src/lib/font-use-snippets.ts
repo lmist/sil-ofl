@@ -3,6 +3,7 @@ import {
   resolveFontStyle,
   resolveFontWeight,
 } from "@/lib/font-face-descriptors";
+import { approvedExternalUrl } from "@/lib/external-url-policy";
 
 /** CSS `format()` token for @font-face src. */
 export function cssFormatHint(format: string): string {
@@ -39,13 +40,14 @@ export type FontUseSnippets = {
   familyCss: string;
   weight: number;
   style: string;
-  css: string;
-  html: string;
-  react: string;
-  cdnUrl: string;
-  rawUrl: string;
-  repoUrl: string;
-  downloadUrl: string;
+  css: string | null;
+  html: string | null;
+  react: string | null;
+  cdnUrl: string | null;
+  rawUrl: string | null;
+  repoUrl: string | null;
+  downloadUrl: string | null;
+  policyError: string | null;
 };
 
 /**
@@ -58,85 +60,103 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
   const weight = resolveFontWeight(font.weightGuess);
   const style = resolveFontStyle(font.styleGuess);
   const fmt = cssFormatHint(font.format);
-  const url = font.cdnUrl || font.rawUrl;
+  const cdnUrl = approvedExternalUrl(font.cdnUrl, "fontCdn");
+  const rawUrl = approvedExternalUrl(font.rawUrl, "fontRaw");
+  const repoUrl = approvedExternalUrl(font.repoUrl, "repository");
+  const url = cdnUrl ?? rawUrl;
+  const hasUnapprovedTarget =
+    !cdnUrl ||
+    !rawUrl ||
+    !repoUrl;
+  const policyError = hasUnapprovedTarget
+    ? "Some font actions are unavailable because this record has unapproved links."
+    : null;
 
-  const css = [
-    `/* ${family} — SIL Open Font License`,
-    ` * Source: ${font.fullName}`,
-    ` * Prefer jsDelivr CDN for browser @font-face`,
-    ` */`,
-    `@font-face {`,
-    `  font-family: ${familyCss};`,
-    `  src: url('${url}') format('${fmt}');`,
-    `  font-weight: ${weight};`,
-    `  font-style: ${style};`,
-    `  font-display: swap;`,
-    `}`,
-    ``,
-    `/* use it */`,
-    `.my-text {`,
-    `  font-family: ${familyCss}, system-ui, sans-serif;`,
-    `  font-weight: ${weight};`,
-    `  font-style: ${style};`,
-    `}`,
-  ].join("\n");
+  const css = url
+    ? [
+        `/* ${family} — SIL Open Font License`,
+        ` * Source: ${font.fullName}`,
+        ` * Prefer jsDelivr CDN for browser @font-face`,
+        ` */`,
+        `@font-face {`,
+        `  font-family: ${familyCss};`,
+        `  src: url('${url}') format('${fmt}');`,
+        `  font-weight: ${weight};`,
+        `  font-style: ${style};`,
+        `  font-display: swap;`,
+        `}`,
+        ``,
+        `/* use it */`,
+        `.my-text {`,
+        `  font-family: ${familyCss}, system-ui, sans-serif;`,
+        `  font-weight: ${weight};`,
+        `  font-style: ${style};`,
+        `}`,
+      ].join("\n")
+    : null;
 
-  const html = [
-    `<!doctype html>`,
-    `<html lang="en">`,
-    `<head>`,
-    `  <meta charset="utf-8" />`,
-    `  <title>${family}</title>`,
-    `  <style>`,
-    `    @font-face {`,
-    `      font-family: ${familyCss};`,
-    `      src: url('${url}') format('${fmt}');`,
-    `      font-weight: ${weight};`,
-    `      font-style: ${style};`,
-    `      font-display: swap;`,
-    `    }`,
-    `    body {`,
-    `      font-family: ${familyCss}, system-ui, sans-serif;`,
-    `      font-weight: ${weight};`,
-    `      font-style: ${style};`,
-    `      font-size: 2rem;`,
-    `    }`,
-    `  </style>`,
-    `</head>`,
-    `<body>`,
-    `  <p>The quick brown fox jumps over the lazy dog.</p>`,
-    `</body>`,
-    `</html>`,
-  ].join("\n");
+  const html = url
+    ? [
+        `<!doctype html>`,
+        `<html lang="en">`,
+        `<head>`,
+        `  <meta charset="utf-8" />`,
+        `  <title>${family}</title>`,
+        `  <style>`,
+        `    @font-face {`,
+        `      font-family: ${familyCss};`,
+        `      src: url('${url}') format('${fmt}');`,
+        `      font-weight: ${weight};`,
+        `      font-style: ${style};`,
+        `      font-display: swap;`,
+        `    }`,
+        `    body {`,
+        `      font-family: ${familyCss}, system-ui, sans-serif;`,
+        `      font-weight: ${weight};`,
+        `      font-style: ${style};`,
+        `      font-size: 2rem;`,
+        `    }`,
+        `  </style>`,
+        `</head>`,
+        `<body>`,
+        `  <p>The quick brown fox jumps over the lazy dog.</p>`,
+        `</body>`,
+        `</html>`,
+      ].join("\n")
+    : null;
 
-  const reactFontFace = [
-    `@font-face {`,
-    `  font-family: ${familyCss};`,
-    `  src: url('${url}') format('${fmt}');`,
-    `  font-weight: ${weight};`,
-    `  font-style: ${style};`,
-    `  font-display: swap;`,
-    `}`,
-  ].join("\n");
+  const reactFontFace = url
+    ? [
+        `@font-face {`,
+        `  font-family: ${familyCss};`,
+        `  src: url('${url}') format('${fmt}');`,
+        `  font-weight: ${weight};`,
+        `  font-style: ${style};`,
+        `  font-display: swap;`,
+        `}`,
+      ].join("\n")
+    : null;
 
-  const react = [
-    `export function FontExample() {`,
-    `  return (`,
-    `    <>`,
-    `      <style>{${JSON.stringify(reactFontFace)}}</style>`,
-    `      <p`,
-    `        style={{`,
-    `          fontFamily: ${JSON.stringify(`${family}, system-ui, sans-serif`)},`,
-    `          fontWeight: ${weight},`,
-    `          fontStyle: ${JSON.stringify(style)},`,
-    `        }}`,
-    `      >`,
-    `        The quick brown fox jumps over the lazy dog.`,
-    `      </p>`,
-    `    </>`,
-    `  );`,
-    `}`,
-  ].join("\n");
+  const react = reactFontFace
+    ? [
+        `export function FontExample() {`,
+        `  return (`,
+        `    <>`,
+        `      <style>{${JSON.stringify(reactFontFace)}}</style>`,
+        `      <p`,
+        `        style={{`,
+        `          fontFamily: ${JSON.stringify(`${family}, system-ui, sans-serif`)},`,
+        `          fontWeight: ${weight},`,
+        `          fontStyle: ${JSON.stringify(style)},`,
+        `        }}`,
+        `      >`,
+        `        The quick brown fox jumps over the lazy dog.`,
+        `      </p>`,
+        `    </>`,
+        `  );`,
+        `}`,
+      ].join("\n")
+    : null;
 
   return {
     family,
@@ -146,9 +166,10 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
     css,
     html,
     react,
-    cdnUrl: font.cdnUrl,
-    rawUrl: font.rawUrl,
-    repoUrl: font.repoUrl,
-    downloadUrl: font.cdnUrl || font.rawUrl,
+    cdnUrl,
+    rawUrl,
+    repoUrl,
+    downloadUrl: url,
+    policyError,
   };
 }
