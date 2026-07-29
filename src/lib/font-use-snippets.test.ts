@@ -146,6 +146,20 @@ describe("font-use-snippets", () => {
     assert.match(react, /fontStyle: "normal"/);
   });
 
+  it("quotes a selected generic-looking family in the React fallback list", () => {
+    for (const family of ["serif", "inherit"]) {
+      const s = buildFontUseSnippets({
+        ...sample,
+        familyGuess: family,
+      });
+
+      assert.equal(
+        parseReactArtifact(available(s.react)).inlineFamily,
+        `'${family}', system-ui, sans-serif`,
+      );
+    }
+  });
+
   it("applies a weighted italic face in every copied usage example", () => {
     const s = buildFontUseSnippets({
       ...sample,
@@ -192,6 +206,36 @@ describe("font-use-snippets", () => {
     );
   });
 
+  it("keeps an approved URL inert inside every generated CSS string", () => {
+    const hostileUrl =
+      "https://cdn.jsdelivr.net/x');font-style:oblique;/*";
+    const s = buildFontUseSnippets({
+      ...sample,
+      cdnUrl: hostileUrl,
+    });
+    const htmlStyle = available(s.html).match(
+      /<style>\n([\s\S]*?)\n  <\/style>/,
+    )?.[1];
+    const artifacts = [
+      available(s.css),
+      available(htmlStyle ?? null),
+      parseReactArtifact(available(s.react)).embeddedCss,
+    ];
+
+    for (const artifact of artifacts) {
+      const root = postcss.parse(artifact);
+      const injectedStyles: string[] = [];
+      root.walkDecls("font-style", (declaration) => {
+        if (declaration.value === "oblique") {
+          injectedStyles.push(declaration.toString());
+        }
+      });
+      assert.deepEqual(injectedStyles, []);
+    }
+    assert.equal(s.cdnUrl, hostileUrl);
+    assert.equal(s.downloadUrl, hostileUrl);
+  });
+
   it("target-escapes hostile metadata without changing the family identity", () => {
     const family = "O'Brien </title><script>alert(1)</script>\n\\face";
     const s = buildFontUseSnippets({
@@ -211,7 +255,7 @@ describe("font-use-snippets", () => {
     assert.equal(s.family, family);
     assert.equal(
       react.inlineFamily,
-      `${family}, system-ui, sans-serif`,
+      `${s.familyCss}, system-ui, sans-serif`,
     );
     assert.match(
       available(s.html),

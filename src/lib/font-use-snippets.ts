@@ -111,6 +111,7 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
   const rawUrl = approvedExternalUrl(font.rawUrl, "fontRaw");
   const repoUrl = approvedExternalUrl(font.repoUrl, "repository");
   const url = cdnUrl ?? rawUrl;
+  const urlCss = url ? cssStringContents(url) : null;
   const hasUnapprovedTarget =
     !cdnUrl ||
     !rawUrl ||
@@ -119,7 +120,7 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
     ? "Some font actions are unavailable because this record has unapproved links."
     : null;
 
-  const css = url
+  const css = urlCss
     ? [
         `/* ${familyComment} — SIL Open Font License`,
         ` * Source: ${sourceComment}`,
@@ -127,7 +128,7 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
         ` */`,
         `@font-face {`,
         `  font-family: ${familyCss};`,
-        `  src: url('${url}') format('${fmt}');`,
+        `  src: url('${urlCss}') format('${fmt}');`,
         `  font-weight: ${weight};`,
         `  font-style: ${style};`,
         `  font-display: swap;`,
@@ -142,7 +143,7 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
       ].join("\n")
     : null;
 
-  const html = url
+  const html = urlCss
     ? [
         `<!doctype html>`,
         `<html lang="en">`,
@@ -152,7 +153,7 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
         `  <style>`,
         `    @font-face {`,
         `      font-family: ${familyCss};`,
-        `      src: url('${url}') format('${fmt}');`,
+        `      src: url('${urlCss}') format('${fmt}');`,
         `      font-weight: ${weight};`,
         `      font-style: ${style};`,
         `      font-display: swap;`,
@@ -172,11 +173,11 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
       ].join("\n")
     : null;
 
-  const reactFontFace = url
+  const reactFontFace = urlCss
     ? [
         `@font-face {`,
         `  font-family: ${familyCss};`,
-        `  src: url('${url}') format('${fmt}');`,
+        `  src: url('${urlCss}') format('${fmt}');`,
         `  font-weight: ${weight};`,
         `  font-style: ${style};`,
         `  font-display: swap;`,
@@ -192,7 +193,7 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
         `      <style>{${JSON.stringify(reactFontFace)}}</style>`,
         `      <p`,
         `        style={{`,
-        `          fontFamily: ${JSON.stringify(`${family}, system-ui, sans-serif`)},`,
+        `          fontFamily: ${JSON.stringify(`${familyCss}, system-ui, sans-serif`)},`,
         `          fontWeight: ${weight},`,
         `          fontStyle: ${JSON.stringify(style)},`,
         `        }}`,

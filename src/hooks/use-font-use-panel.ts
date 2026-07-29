@@ -31,6 +31,7 @@ export function useFontUsePanel() {
   const fontId = font?.fontFileId ?? null;
   const [feedback, setFeedback] = useState<CopyFeedback | null>(null);
   const copyToken = useRef(0);
+  const copyQueue = useRef<Promise<void>>(Promise.resolve());
 
   const snippets = useMemo(
     () => (font ? buildFontUseSnippets(font) : null),
@@ -46,54 +47,63 @@ export function useFontUsePanel() {
     ) => {
       const token = ++copyToken.current;
       setFeedback(null);
-      let confirmed = false;
+      const queuedCopy = copyQueue.current.then(async () => {
+        if (copyToken.current !== token) return;
 
-      try {
-        if (!navigator.clipboard?.writeText) {
-          throw new Error("Clipboard API unavailable");
-        }
-        await navigator.clipboard.writeText(text);
-        confirmed = true;
-      } catch {
-        // Fallback for restricted clipboard environments.
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.setAttribute("readonly", "");
-        ta.style.position = "fixed";
-        ta.style.left = "-9999px";
-        document.body.appendChild(ta);
-        ta.select();
+        let confirmed = false;
+
         try {
-          confirmed = document.execCommand("copy") === true;
+          if (!navigator.clipboard?.writeText) {
+            throw new Error("Clipboard API unavailable");
+          }
+          await navigator.clipboard.writeText(text);
+          confirmed = true;
         } catch {
-          confirmed = false;
-        } finally {
-          document.body.removeChild(ta);
-          if (initiatingControl.isConnected) {
-            initiatingControl.focus({ preventScroll: true });
+          if (copyToken.current !== token) return;
+
+          // Fallback for restricted clipboard environments.
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            confirmed = document.execCommand("copy") === true;
+          } catch {
+            confirmed = false;
+          } finally {
+            document.body.removeChild(ta);
+            if (initiatingControl.isConnected) {
+              initiatingControl.focus({ preventScroll: true });
+            }
           }
         }
-      }
 
-      if (copyToken.current !== token) return;
+        if (copyToken.current !== token) return;
 
-      if (!confirmed) {
+        if (!confirmed) {
+          setFeedback({
+            fontId: selectedFontId,
+            kind,
+            status: "failed",
+          });
+          return;
+        }
+
         setFeedback({
           fontId: selectedFontId,
           kind,
-          status: "failed",
+          status: "copied",
         });
-        return;
-      }
-
-      setFeedback({
-        fontId: selectedFontId,
-        kind,
-        status: "copied",
+        window.setTimeout(() => {
+          if (copyToken.current === token) setFeedback(null);
+        }, 1600);
       });
-      window.setTimeout(() => {
-        if (copyToken.current === token) setFeedback(null);
-      }, 1600);
+
+      copyQueue.current = queuedCopy.catch(() => undefined);
+      await queuedCopy;
     },
     [],
   );

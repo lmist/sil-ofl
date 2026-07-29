@@ -10,10 +10,19 @@ type ClipboardHarness = {
 };
 
 type LegacyCopyOutcome = "success" | "false" | "throw";
+type DeferredCopyOutcome = "resolve" | "reject";
+
+type DeferredClipboardHarness = {
+  calls: string[];
+  clipboardText: string | null;
+  fallbackTexts: string[];
+  settle: (index: number, outcome: DeferredCopyOutcome) => void;
+};
 
 declare global {
   interface Window {
     __clipboardHarness: ClipboardHarness;
+    __deferredClipboardHarness: DeferredClipboardHarness;
   }
 }
 
@@ -40,6 +49,82 @@ async function forceLegacyClipboard(
       },
     });
   }, outcome);
+}
+
+async function forceDeferredClipboard(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  await page.addInitScript(() => {
+    type DeferredSlot = {
+      outcome: DeferredCopyOutcome | null;
+      resolve: (() => void) | null;
+      reject: (() => void) | null;
+    };
+
+    const slots: DeferredSlot[] = [];
+    const slotAt = (index: number): DeferredSlot => {
+      slots[index] ??= {
+        outcome: null,
+        resolve: null,
+        reject: null,
+      };
+      return slots[index];
+    };
+    const finish = (slot: DeferredSlot): void => {
+      if (!slot.outcome || !slot.resolve || !slot.reject) return;
+      const complete =
+        slot.outcome === "resolve" ? slot.resolve : slot.reject;
+      slot.resolve = null;
+      slot.reject = null;
+      complete();
+    };
+    const harness: DeferredClipboardHarness = {
+      calls: [],
+      clipboardText: null,
+      fallbackTexts: [],
+      settle: (index, outcome) => {
+        const slot = slotAt(index);
+        slot.outcome = outcome;
+        finish(slot);
+      },
+    };
+
+    Object.defineProperty(window, "__deferredClipboardHarness", {
+      configurable: true,
+      value: harness,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          const index = harness.calls.push(text) - 1;
+          const slot = slotAt(index);
+          return new Promise<void>((resolve, reject) => {
+            slot.resolve = () => {
+              harness.clipboardText = text;
+              resolve();
+            };
+            slot.reject = () => {
+              reject(new DOMException("Denied", "NotAllowedError"));
+            };
+            finish(slot);
+          });
+        },
+      },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: () => {
+        const fallbackText =
+          Array.from(document.querySelectorAll("textarea")).find(
+            (element) => element.readOnly,
+          )?.value ?? "";
+        harness.fallbackTexts.push(fallbackText);
+        harness.clipboardText = fallbackText;
+        return true;
+      },
+    });
+  });
 }
 
 async function openCatalog(
@@ -205,6 +290,69 @@ test.describe("specimen and export regressions", () => {
         ).toHaveText("Copy failed. Try again.");
       }
       await expect(copyCdn).toBeFocused();
+    });
+  }
+
+  for (const olderOutcome of ["reject", "resolve"] as const) {
+    test(`latest initiated copy wins when the older native write completes with ${olderOutcome}`, async ({
+      page,
+      mockGraphql,
+    }) => {
+      await forceDeferredClipboard(page);
+      await openCatalog(page, mockGraphql);
+      await page.locator("[data-font-row]").first().click();
+
+      await page.getByRole("button", { name: "Copy CSS @font-face" }).click();
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => window.__deferredClipboardHarness.calls.length,
+          ),
+        )
+        .toBe(1);
+      await page.getByRole("button", { name: "Copy CDN URL" }).click();
+
+      await page.evaluate(
+        ({ index, outcome }) => {
+          window.__deferredClipboardHarness.settle(index, outcome);
+        },
+        { index: 1, outcome: "resolve" as const },
+      );
+      await page.evaluate(
+        ({ index, outcome }) => {
+          window.__deferredClipboardHarness.settle(index, outcome);
+        },
+        { index: 0, outcome: olderOutcome },
+      );
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => window.__deferredClipboardHarness.calls.length,
+          ),
+        )
+        .toBe(2);
+      await expect(
+        page.locator('[data-copy-feedback][role="status"]'),
+      ).toHaveText("CDN URL copied.");
+      expect(
+        await page.evaluate(
+          () => window.__deferredClipboardHarness.clipboardText,
+        ),
+      ).toBe(
+        "https://cdn.jsdelivr.net/gh/rsms/inter@master/docs/font-files/Inter-Regular.woff2",
+      );
+      expect(
+        await page.evaluate(
+          () => window.__deferredClipboardHarness.fallbackTexts,
+        ),
+      ).toEqual([]);
     });
   }
 });
