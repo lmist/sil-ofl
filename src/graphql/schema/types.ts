@@ -23,10 +23,12 @@ import {
   publicFontVisibilityClauses,
   publicRepoVisibilityClauses,
 } from "./public-font-policy";
+import { isDatabaseText } from "./database-text";
 import type { CatalogStats, FontFile, Repo } from "@/types/catalog";
 
 const MAX_FIRST = 100;
 const DEFAULT_FIRST = 50;
+const PUBLIC_FONT_FORMATS = new Set(["ttf", "otf", "woff", "woff2"]);
 
 function badUserInput(message: string): GraphQLError {
   return new GraphQLError(message, {
@@ -46,6 +48,48 @@ function requireFontId(input: string | number): number {
   const id = parsePositiveSafeInteger(input);
   if (id !== null) return id;
   throw badUserInput("font id must be a positive safe integer");
+}
+
+function requireDatabaseText(value: string, field: string): string {
+  if (isDatabaseText(value)) return value;
+  throw badUserInput(
+    `${field} must be valid Unicode text without NUL characters`,
+  );
+}
+
+function normalizeOptionalDatabaseText(
+  value: string | null | undefined,
+  field: string,
+): string | null {
+  if (value === null || value === undefined) return null;
+  return requireDatabaseText(value, field).trim() || null;
+}
+
+function requireMinStars(value: number | null | undefined): number {
+  const minStars = value ?? 0;
+  if (!Number.isInteger(minStars) || minStars < 0) {
+    throw badUserInput("minStars must be a nonnegative integer");
+  }
+  return minStars;
+}
+
+function normalizeFontFormats(
+  values: readonly string[] | null | undefined,
+): string[] | null {
+  if (!values || values.length === 0) return null;
+
+  return values.map((value) => {
+    const normalized = requireDatabaseText(
+      value,
+      "FontFilter.format",
+    ).toLowerCase();
+    if (!PUBLIC_FONT_FORMATS.has(normalized)) {
+      throw badUserInput(
+        "format must contain only ttf, otf, woff, or woff2",
+      );
+    }
+    return normalized;
+  });
 }
 
 function requirePositiveSafeInt(value: unknown): number {
@@ -274,9 +318,13 @@ const FontFilterInput = builder.inputType("FontFilter", {
     owner: t.string({ required: false }),
     format: t.stringList({
       required: false,
-      description: "ttf | otf | woff | woff2",
+      description:
+        "Case-insensitive. Accepted values: ttf, otf, woff, woff2.",
     }),
-    minStars: t.int({ required: false }),
+    minStars: t.int({
+      required: false,
+      description: "Nonnegative minimum repository star count.",
+    }),
     webfont: t.boolean({ required: false }),
     variable: t.boolean({ required: false }),
   }),
@@ -286,7 +334,10 @@ const RepoFilterInput = builder.inputType("RepoFilter", {
   fields: (t) => ({
     q: t.string({ required: false }),
     owner: t.string({ required: false }),
-    minStars: t.int({ required: false }),
+    minStars: t.int({
+      required: false,
+      description: "Nonnegative minimum repository star count.",
+    }),
     withFonts: t.boolean({ required: false }),
   }),
 });
@@ -453,7 +504,11 @@ builder.queryFields((t) => ({
     type: FontConnectionRef,
     args: {
       filter: t.arg({ type: FontFilterInput, required: false }),
-      sort: t.arg({ type: FontSort, required: false }),
+      sort: t.arg({
+        type: FontSort,
+        required: false,
+        defaultValue: "REPUTATION_DESC",
+      }),
       first: t.arg.int({ required: false, defaultValue: DEFAULT_FIRST }),
       after: t.arg.string({ required: false }),
     },
@@ -461,16 +516,16 @@ builder.queryFields((t) => ({
       const first = requirePageSize(args.first);
       const sort = (args.sort ?? "REPUTATION_DESC") as FontSortValue;
       const filter = args.filter ?? {};
-      const minStars = filter.minStars ?? 0;
-      const owner = filter.owner?.trim() || null;
-      const q = filter.q?.trim() || null;
+      const minStars = requireMinStars(filter.minStars);
+      const owner = normalizeOptionalDatabaseText(
+        filter.owner,
+        "FontFilter.owner",
+      );
+      const q = normalizeOptionalDatabaseText(filter.q, "FontFilter.q");
       const qPattern = q ? `%${q}%` : null;
       const webfont = filter.webfont ?? null;
       const variable = filter.variable ?? null;
-      const formats =
-        filter.format && filter.format.length > 0
-          ? filter.format.map((f) => f.toLowerCase())
-          : null;
+      const formats = normalizeFontFormats(filter.format);
 
       const after = args.after ?? null;
       const cursor = after === null ? null : decodeFontCursor(after);
@@ -652,9 +707,12 @@ builder.queryFields((t) => ({
     resolve: async (_root, args, ctx) => {
       const first = requirePageSize(args.first);
       const filter = args.filter ?? {};
-      const minStars = filter.minStars ?? 0;
-      const owner = filter.owner?.trim() || null;
-      const q = filter.q?.trim() || null;
+      const minStars = requireMinStars(filter.minStars);
+      const owner = normalizeOptionalDatabaseText(
+        filter.owner,
+        "RepoFilter.owner",
+      );
+      const q = normalizeOptionalDatabaseText(filter.q, "RepoFilter.q");
       const qPattern = q ? `%${q}%` : null;
       const withFonts = filter.withFonts ?? null;
 
@@ -795,7 +853,9 @@ builder.queryFields((t) => ({
       name: t.arg.string({ required: true }),
     },
     resolve: async (_root, args, ctx) => {
-      const fullName = `${args.owner}/${args.name}`;
+      const owner = requireDatabaseText(args.owner, "repo.owner");
+      const name = requireDatabaseText(args.name, "repo.name");
+      const fullName = `${owner}/${name}`;
       const detailSql = `
         SELECT
           r.id,

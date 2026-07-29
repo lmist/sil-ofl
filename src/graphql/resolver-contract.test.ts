@@ -13,6 +13,188 @@ type SqlCall = {
 };
 
 describe("GraphQL resolver SQL contracts", () => {
+  it("rejects malformed database-bound text before SQL access", async () => {
+    const invalidTextValues = [
+      { label: "NUL", value: "bad\0text" },
+      { label: "lone high surrogate", value: String.fromCharCode(0xd800) },
+      { label: "lone low surrogate", value: String.fromCharCode(0xdc00) },
+      {
+        label: "high surrogate followed by ASCII",
+        value: `${String.fromCharCode(0xd800)}x`,
+      },
+      {
+        label: "ASCII followed by low surrogate",
+        value: `x${String.fromCharCode(0xdc00)}`,
+      },
+      {
+        label: "reversed surrogate pair",
+        value: String.fromCharCode(0xdc00, 0xd800),
+      },
+    ];
+    const operations = [
+      {
+        label: "FontFilter.q",
+        source:
+          "query InvalidText($value: String) { fonts(filter: { q: $value }, first: 1) { totalCount } }",
+      },
+      {
+        label: "FontFilter.owner",
+        source:
+          "query InvalidText($value: String) { fonts(filter: { owner: $value }, first: 1) { totalCount } }",
+      },
+      {
+        label: "FontFilter.format",
+        source:
+          "query InvalidText($value: String!) { fonts(filter: { format: [$value] }, first: 1) { totalCount } }",
+      },
+      {
+        label: "RepoFilter.q",
+        source:
+          "query InvalidText($value: String) { repos(filter: { q: $value }, first: 1) { totalCount } }",
+      },
+      {
+        label: "RepoFilter.owner",
+        source:
+          "query InvalidText($value: String) { repos(filter: { owner: $value }, first: 1) { totalCount } }",
+      },
+      {
+        label: "repo.owner",
+        source:
+          'query InvalidText($value: String!) { repo(owner: $value, name: "repo") { id } }',
+      },
+      {
+        label: "repo.name",
+        source:
+          'query InvalidText($value: String!) { repo(owner: "owner", name: $value) { id } }',
+      },
+    ];
+
+    for (const operation of operations) {
+      for (const invalid of invalidTextValues) {
+        const capture = createSqlCapture();
+        const result = await graphql({
+          schema,
+          source: operation.source,
+          variableValues: { value: invalid.value },
+          contextValue: capture.contextValue,
+        });
+
+        assert.equal(
+          capture.sqlAccesses,
+          0,
+          `${operation.label} ${invalid.label} must not access SQL`,
+        );
+        assert.equal(capture.calls.length, 0);
+        assert.equal(
+          result.errors?.[0]?.extensions.code,
+          "BAD_USER_INPUT",
+          `${operation.label} ${invalid.label} must be client input`,
+        );
+        assert.equal(
+          result.errors?.[0]?.message,
+          `${operation.label} must be valid Unicode text without NUL characters`,
+        );
+      }
+    }
+  });
+
+  it("preserves valid database text, format case normalization, and empty filters", async () => {
+    const validText = `Alpha${String.fromCharCode(1, 31, 127)}😀\uffff`;
+    const populated = createSqlCapture();
+    const populatedResult = await graphql({
+      schema,
+      source: `query ValidText($filter: FontFilter) {
+        fonts(filter: $filter, first: 1) { totalCount }
+      }`,
+      variableValues: {
+        filter: {
+          q: validText,
+          owner: validText,
+          format: ["TTF", "Woff2"],
+          minStars: 0,
+        },
+      },
+      contextValue: populated.contextValue,
+    });
+
+    assert.equal(populatedResult.errors, undefined);
+    assert.equal(populated.sqlAccesses, 1);
+    assert.deepEqual(populated.queryCalls[0]?.params, [
+      0,
+      validText,
+      ["ttf", "woff2"],
+      `%${validText}%`,
+      2,
+    ]);
+
+    const empty = createSqlCapture();
+    const emptyResult = await graphql({
+      schema,
+      source: `query EmptyFilters($filter: FontFilter) {
+        fonts(filter: $filter, first: 1) { totalCount }
+      }`,
+      variableValues: {
+        filter: {
+          q: null,
+          owner: null,
+          format: [],
+          minStars: null,
+        },
+      },
+      contextValue: empty.contextValue,
+    });
+
+    assert.equal(emptyResult.errors, undefined);
+    assert.equal(empty.sqlAccesses, 1);
+    assert.deepEqual(empty.queryCalls[0]?.params, [0, 2]);
+  });
+
+  it("rejects negative star filters before SQL access", async () => {
+    for (const field of ["fonts", "repos"] as const) {
+      const capture = createSqlCapture();
+      const result = await graphql({
+        schema,
+        source: `query NegativeStars($filter: ${
+          field === "fonts" ? "FontFilter" : "RepoFilter"
+        }) {
+          ${field}(filter: $filter, first: 1) { totalCount }
+        }`,
+        variableValues: { filter: { minStars: -1 } },
+        contextValue: capture.contextValue,
+      });
+
+      assert.equal(capture.sqlAccesses, 0);
+      assert.equal(capture.calls.length, 0);
+      assert.equal(result.errors?.[0]?.extensions.code, "BAD_USER_INPUT");
+      assert.equal(
+        result.errors?.[0]?.message,
+        "minStars must be a nonnegative integer",
+      );
+    }
+  });
+
+  it("rejects unsupported font formats before SQL access", async () => {
+    for (const format of ["png", "ttc", "", " ttf "]) {
+      const capture = createSqlCapture();
+      const result = await graphql({
+        schema,
+        source: `query InvalidFormat($filter: FontFilter) {
+          fonts(filter: $filter, first: 1) { totalCount }
+        }`,
+        variableValues: { filter: { format: [format] } },
+        contextValue: capture.contextValue,
+      });
+
+      assert.equal(capture.sqlAccesses, 0);
+      assert.equal(capture.calls.length, 0);
+      assert.equal(result.errors?.[0]?.extensions.code, "BAD_USER_INPUT");
+      assert.equal(
+        result.errors?.[0]?.message,
+        "format must contain only ttf, otf, woff, or woff2",
+      );
+    }
+  });
+
   it("uses the OFL-only public predicate for font rows and totalCount", async () => {
     const { contextValue, queryCalls } = createSqlCapture();
 
@@ -505,6 +687,7 @@ describe("GraphQL resolver SQL contracts", () => {
 function createSqlCapture() {
   const calls: SqlCall[] = [];
   const queryCalls: SqlCall[] = [];
+  let sqlAccesses = 0;
 
   const query = async (text: string, params: unknown[] = []) => {
     const call = { text: normalizeSql(text), params };
@@ -525,10 +708,16 @@ function createSqlCapture() {
   return {
     contextValue: {
       sql,
-      getSql: () => sqlClient,
+      getSql: () => {
+        sqlAccesses += 1;
+        return sqlClient;
+      },
     },
     calls,
     queryCalls,
+    get sqlAccesses() {
+      return sqlAccesses;
+    },
   };
 }
 

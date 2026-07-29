@@ -179,11 +179,27 @@ describe("GraphQL schema contract", () => {
         expectedFields,
       );
     }
+    const fontFilter = schema.getType("FontFilter");
+    const repoFilter = schema.getType("RepoFilter");
+    assert.ok(isInputObjectType(fontFilter));
+    assert.ok(isInputObjectType(repoFilter));
+    assert.equal(
+      fontFilter.getFields().format?.description,
+      "Case-insensitive. Accepted values: ttf, otf, woff, woff2.",
+    );
+    assert.equal(
+      fontFilter.getFields().minStars?.description,
+      "Nonnegative minimum repository star count.",
+    );
+    assert.equal(
+      repoFilter.getFields().minStars?.description,
+      "Nonnegative minimum repository star count.",
+    );
 
     const query = schema.getQueryType()!;
     assert.deepEqual(argumentContract(query.getFields().fonts!.args), {
       filter: { type: "FontFilter", defaultValue: undefined },
-      sort: { type: "FontSort", defaultValue: undefined },
+      sort: { type: "FontSort", defaultValue: "REPUTATION_DESC" },
       first: { type: "Int", defaultValue: 50 },
       after: { type: "String", defaultValue: undefined },
     });
