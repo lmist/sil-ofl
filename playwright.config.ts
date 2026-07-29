@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = Number(process.env.PORT ?? 3000);
+const PORT = Number(process.env.PORT ?? process.env.CONDUCTOR_PORT ?? 3000);
 // Prefer localhost over 127.0.0.1 so Next dev does not block /_next assets
 // (allowedDevOrigins cross-origin check).
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${PORT}`;
@@ -31,7 +31,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: process.env.PLAYWRIGHT_WEB_SERVER ?? "npm run dev",
+    command: process.env.PLAYWRIGHT_WEB_SERVER ?? "bun run dev",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

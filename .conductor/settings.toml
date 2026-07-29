@@ -1,0 +1,39 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+setup = "bun install --frozen-lockfile && bunx playwright install chromium"
+run_mode = "concurrent"
+
+[scripts.run.dev]
+command = "bun run dev -- --port \"$CONDUCTOR_PORT\""
+default = true
+icon = "play"
+available_in = ["local"]
+
+[scripts.run.unit]
+command = "bun run test"
+icon = "test-tube"
+
+[scripts.run.e2e]
+command = "E2E_PORT=$((CONDUCTOR_PORT + 1)); PORT=\"$E2E_PORT\" PLAYWRIGHT_BASE_URL=\"http://localhost:$E2E_PORT\" bun run test:e2e"
+icon = "monitor"
+available_in = ["local"]
+
+[scripts.run.typecheck]
+command = "bun run typecheck"
+icon = "check"
+
+[scripts.run.verify]
+command = "bun run lint && bun run typecheck && bun run test && bun run build"
+icon = "shield-check"
+
+[prompts]
+general = "Read INVARIANTS.md before changing behavior. Use Bun. Keep changes reviewable and run the relevant regression tests."
+code_review = "Check INVARIANTS.md first, then focus on correctness, state convergence, accessibility, security, and missing regression tests."
+resolve_merge_conflicts = "Preserve both branches' tested behavior, resolve against INVARIANTS.md, and rerun every affected check."
+
+[git]
+delete_branch_on_archive = false
+archive_on_merge = false
+worktree_push_auto_setup_remote = false
+branch_prefix_type = "github_username"
