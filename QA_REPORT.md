@@ -91,6 +91,8 @@ status for every defect.
 | `silofl-pzs.30` | Space does not reliably select a virtualized row | focused-row keyboard path | Enter/Space identity parity |
 | `silofl-pzs.31` | GraphQL bodies and alias cost are unbounded | oversized and repeated-root documents | body and operation budgets |
 | `silofl-pzs.32` | font loads and external actions trust arbitrary origins | invalid scheme/origin fixtures | approved HTTPS URL policy |
+| `silofl-pzs.33` | copied artifacts do not escape hostile font metadata | adversarial family/repository names | target-specific escaping and parser checks |
+| `silofl-pzs.34` | clipboard fallback loses keyboard focus | denied Clipboard API with textarea fallback | focus restoration on every fallback outcome |
 
 ## Final verification
 
