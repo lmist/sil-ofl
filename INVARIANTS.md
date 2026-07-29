@@ -318,7 +318,10 @@ selection events for the current face MUST NOT start duplicate face work.
 JavaScript and TypeScript setup, development, tests, and build commands MUST use
 Bun. The repository MUST carry one authoritative Bun lockfile and declare its
 Bun package manager version. Automated JavaScript dependency version updates
-MUST use Dependabot's Bun ecosystem.
+MUST use Dependabot's Bun ecosystem. Routine automated version-update pull
+requests MUST be limited to SemVer minor and patch releases. Coupled runtimes,
+including React and React DOM, MUST update atomically; major migrations MUST be
+deliberate and validated against their consumers' peer ranges.
 
 ### INV-REPO-2 — Workspaces are isolated
 
