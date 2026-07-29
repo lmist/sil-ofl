@@ -246,8 +246,23 @@ describe("repository workspace contract", () => {
     ) as {
       packageManager: string;
       scripts: Record<string, string>;
+      dependencies: Record<string, string>;
     };
     assert.equal(packageJson.packageManager, "bun@1.3.14");
+    assert.equal(
+      packageJson.dependencies.react,
+      packageJson.dependencies["react-dom"],
+      "react and react-dom must stay on the same exact release",
+    );
+    const reactRuntime = spawnSync(
+      "bun",
+      [
+        "-e",
+        'import React from "react"; import { renderToString } from "react-dom/server"; console.log(renderToString(React.createElement("div", null, "ok")));',
+      ],
+      { cwd: process.cwd(), encoding: "utf8" },
+    );
+    assert.equal(reactRuntime.status, 0, reactRuntime.stderr);
     assert.equal(
       packageJson.scripts["test:e2e"],
       "bun scripts/run-isolated-e2e.ts",
@@ -282,12 +297,95 @@ describe("repository workspace contract", () => {
     assert.match(dependencyAuditWorkflow, /persist-credentials: false/);
     assert.match(dependencyAuditWorkflow, /run: bun ci --ignore-scripts/);
     assert.match(dependencyAuditWorkflow, /run: bun audit/);
-    const dependabotConfig = readFileSync(
-      ".github/dependabot.yml",
-      "utf8",
+    const parsedDependabot = spawnSync(
+      "bun",
+      [
+        "-e",
+        'console.log(JSON.stringify(Bun.YAML.parse(await Bun.file(".github/dependabot.yml").text())))',
+      ],
+      { cwd: process.cwd(), encoding: "utf8" },
     );
-    assert.match(dependabotConfig, /package-ecosystem: bun/);
-    assert.match(dependabotConfig, /package-ecosystem: github-actions/);
+    assert.equal(parsedDependabot.status, 0, parsedDependabot.stderr);
+    type DependabotGroup = {
+      "applies-to": string;
+      patterns: string[];
+      "update-types": string[];
+    };
+    type DependabotUpdate = {
+      "package-ecosystem": string;
+      "open-pull-requests-limit"?: number;
+      allow?: Array<{
+        "dependency-name": string;
+        "update-types": string[];
+      }>;
+      groups?: Record<string, DependabotGroup>;
+    };
+    const dependabotConfig = JSON.parse(parsedDependabot.stdout) as {
+      updates: DependabotUpdate[];
+    };
+    const bunUpdates = dependabotConfig.updates.find(
+      (update) => update["package-ecosystem"] === "bun",
+    );
+    assert.ok(bunUpdates);
+    assert.equal(bunUpdates["open-pull-requests-limit"], 5);
+    assert.deepEqual(bunUpdates.allow, [
+      {
+        "dependency-name": "*",
+        "update-types": [
+          "version-update:semver-minor",
+          "version-update:semver-patch",
+        ],
+      },
+    ]);
+    assert.deepEqual(Object.keys(bunUpdates.groups ?? {}), [
+      "next-and-eslint",
+      "react-stack",
+      "graphql-stack",
+      "tooling",
+      "other-nonmajor",
+    ]);
+    assert.deepEqual(bunUpdates.groups?.["next-and-eslint"], {
+      "applies-to": "version-updates",
+      patterns: ["next", "eslint-config-next", "eslint"],
+      "update-types": ["minor", "patch"],
+    });
+    assert.deepEqual(bunUpdates.groups?.["react-stack"], {
+      "applies-to": "version-updates",
+      patterns: ["react", "react-dom", "@types/react", "@types/react-dom"],
+      "update-types": ["minor", "patch"],
+    });
+    assert.deepEqual(bunUpdates.groups?.["graphql-stack"], {
+      "applies-to": "version-updates",
+      patterns: ["graphql", "graphql-*", "@pothos/*"],
+      "update-types": ["minor", "patch"],
+    });
+    assert.deepEqual(bunUpdates.groups?.["tooling"], {
+      "applies-to": "version-updates",
+      patterns: [
+        "@axe-core/playwright",
+        "@playwright/test",
+        "@tailwindcss/*",
+        "@types/*",
+        "postcss",
+        "tailwindcss",
+        "typescript",
+      ],
+      "update-types": ["minor", "patch"],
+    });
+    assert.deepEqual(bunUpdates.groups?.["other-nonmajor"], {
+      "applies-to": "version-updates",
+      patterns: ["*"],
+      "update-types": ["minor", "patch"],
+    });
+    const actionUpdates = dependabotConfig.updates.find(
+      (update) => update["package-ecosystem"] === "github-actions",
+    );
+    assert.ok(actionUpdates);
+    assert.deepEqual(actionUpdates.groups?.["workflow-actions"], {
+      "applies-to": "version-updates",
+      patterns: ["*"],
+      "update-types": ["minor", "patch"],
+    });
     const isolatedRunnerSource = readFileSync(
       "scripts/run-isolated-e2e.ts",
       "utf8",

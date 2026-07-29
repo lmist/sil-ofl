@@ -1,11 +1,66 @@
 version: 2
 updates:
-  - package-ecosystem: bun
-    directory: /
+  - package-ecosystem: "bun"
+    directory: "/"
     schedule:
-      interval: weekly
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    groups:
+      next-and-eslint:
+        applies-to: "version-updates"
+        patterns:
+          - "next"
+          - "eslint-config-next"
+          - "eslint"
+        update-types: ["minor", "patch"]
 
-  - package-ecosystem: github-actions
-    directory: /
+      react-stack:
+        applies-to: "version-updates"
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+        update-types: ["minor", "patch"]
+
+      graphql-stack:
+        applies-to: "version-updates"
+        patterns:
+          - "graphql"
+          - "graphql-*"
+          - "@pothos/*"
+        update-types: ["minor", "patch"]
+
+      tooling:
+        applies-to: "version-updates"
+        patterns:
+          - "@axe-core/playwright"
+          - "@playwright/test"
+          - "@tailwindcss/*"
+          - "@types/*"
+          - "postcss"
+          - "tailwindcss"
+          - "typescript"
+        update-types: ["minor", "patch"]
+
+      other-nonmajor:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
-      interval: weekly
+      interval: "weekly"
+    groups:
+      workflow-actions:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]
