@@ -8,10 +8,13 @@ type Props = {
   className?: string;
   /** Optional label for aria / messaging */
   label?: string;
+  /** Refresh the failed result source before the boundary renders it again. */
+  onRetry?: () => unknown | Promise<unknown>;
 };
 
 type State = {
   error: Error | null;
+  retrying: boolean;
 };
 
 /**
@@ -19,10 +22,10 @@ type State = {
  * Keeps filter chrome alive when a row or virtualizer throws.
  */
 export class CatalogErrorBoundary extends Component<Props, State> {
-  override state: State = { error: null };
+  override state: State = { error: null, retrying: false };
 
   static getDerivedStateFromError(error: Error): State {
-    return { error };
+    return { error, retrying: false };
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo) {
@@ -31,8 +34,16 @@ export class CatalogErrorBoundary extends Component<Props, State> {
     }
   }
 
-  private onRetry = () => {
-    this.setState({ error: null });
+  private onRetry = async () => {
+    if (this.state.retrying) return;
+
+    this.setState({ retrying: true });
+    try {
+      await this.props.onRetry?.();
+      this.setState({ error: null, retrying: false });
+    } catch {
+      this.setState({ retrying: false });
+    }
   };
 
   override render() {
@@ -53,10 +64,11 @@ export class CatalogErrorBoundary extends Component<Props, State> {
         <p className="text-foreground">
           Something went wrong rendering the {label}.
         </p>
-        <p className="mt-1 max-w-xl break-words">{error.message}</p>
         <button
           type="button"
           onClick={this.onRetry}
+          disabled={this.state.retrying}
+          aria-busy={this.state.retrying}
           className="mt-3 underline underline-offset-4 transition-colors duration-[var(--dur-fast)] hover:text-foreground motion-reduce:transition-none"
         >
           Try again

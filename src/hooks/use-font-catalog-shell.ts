@@ -109,6 +109,7 @@ export function useFontCatalogShell() {
   const fontsQuery = useFontsQuery(fontsFilter, {
     enabled: !isDebouncing,
   });
+  const refetchFonts = fontsQuery.refetch;
 
   const catalogError =
     error || (fontsQuery.isError ? CATALOG_LOAD_ERROR_MESSAGE : null);
@@ -306,9 +307,10 @@ export function useFontCatalogShell() {
     specimen.send({ type: "CLEAR" });
   }, [send, specimen]);
 
-  const onRetryCatalog = useCallback(() => {
+  const onRetryCatalog = useCallback(async () => {
     send({ type: "RETRY" });
-  }, [send]);
+    await refetchFonts();
+  }, [send, refetchFonts]);
 
   const onRetrySpecimen = useCallback(() => {
     specimen.send({ type: "RETRY" });

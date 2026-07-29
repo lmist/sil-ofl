@@ -9,7 +9,9 @@ import { specimenMachine } from "./specimen-machine";
 
 function createTestSpecimen(options?: {
   faceFailures?: number;
+  faceErrorMessage?: string;
   metaFail?: boolean;
+  metaErrorMessage?: string;
   metaMissing?: boolean;
 }) {
   let remainingFaceFailures = options?.faceFailures ?? 0;
@@ -18,12 +20,14 @@ function createTestSpecimen(options?: {
       loadFontFace: fromPromise(async ({ input }) => {
         if (remainingFaceFailures > 0) {
           remainingFaceFailures -= 1;
-          throw new Error("face fail");
+          throw new Error(options?.faceErrorMessage ?? "face fail");
         }
         return { family: input.family, sourceUrl: input.cdnUrl };
       }),
       fetchFont: fromPromise(async ({ input }) => {
-        if (options?.metaFail) throw new Error("meta fail");
+        if (options?.metaFail) {
+          throw new Error(options.metaErrorMessage ?? "meta fail");
+        }
         if (options?.metaMissing) return null;
         return {
           id: String(input.id),
@@ -102,7 +106,11 @@ describe("specimenMachine", () => {
   });
 
   it("LOAD face error → error, RETRY recovers", async () => {
-    const actor = createTestSpecimen({ faceFailures: 1 });
+    const actor = createTestSpecimen({
+      faceFailures: 1,
+      faceErrorMessage:
+        "FontFace.load failed: response=https://private.example/font",
+    });
     actor.send({
       type: "LOAD",
       fontId: 1,
@@ -111,11 +119,17 @@ describe("specimenMachine", () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(actor.getSnapshot().value, "error");
-    assert.equal(actor.getSnapshot().context.error, "face fail");
+    assert.equal(
+      actor.getSnapshot().context.error,
+      "Font face is unavailable.",
+    );
 
     actor.send({ type: "RETRY" });
     assert.equal(actor.getSnapshot().value, "loadingFace");
-    assert.equal(actor.getSnapshot().context.error, "face fail");
+    assert.equal(
+      actor.getSnapshot().context.error,
+      "Font face is unavailable.",
+    );
 
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(actor.getSnapshot().value, "ready");
@@ -132,6 +146,28 @@ describe("specimenMachine", () => {
     assert.equal(actor.getSnapshot().value, "ready");
     assert.equal(actor.getSnapshot().context.family, "Test Family");
     assert.equal(actor.getSnapshot().context.fontId, 55);
+  });
+
+  it("LOAD_BY_ID masks GraphQL request details when metadata fails", async () => {
+    const internalMarker =
+      "query Font($id: ID!) variables={secret} response={database}";
+    const actor = createTestSpecimen({
+      metaFail: true,
+      metaErrorMessage: internalMarker,
+    });
+
+    actor.send({ type: "LOAD_BY_ID", fontId: 55 });
+    await new Promise((r) => setTimeout(r, 0));
+
+    assert.equal(actor.getSnapshot().value, "error");
+    assert.equal(
+      actor.getSnapshot().context.error,
+      "Font details are unavailable.",
+    );
+    assert.doesNotMatch(
+      actor.getSnapshot().context.error ?? "",
+      /query|secret|database/,
+    );
   });
 
   it("LOAD_BY_ID missing font → error", async () => {

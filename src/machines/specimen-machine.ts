@@ -77,6 +77,9 @@ export const defaultSpecimenContext: SpecimenContext = {
   queryClient: null,
 };
 
+const FONT_DETAILS_ERROR = "Font details are unavailable.";
+const FONT_FACE_ERROR = "Font face is unavailable.";
+
 function familyFromMeta(input: {
   family?: string | null;
   fileName?: string | null;
@@ -201,10 +204,7 @@ export const specimenMachine = setup({
         onError: {
           target: "error",
           actions: assign({
-            error: ({ event }) =>
-              event.error instanceof Error
-                ? event.error.message
-                : "Failed to fetch font",
+            error: FONT_DETAILS_ERROR,
           }),
         },
       },
@@ -278,10 +278,7 @@ export const specimenMachine = setup({
         onError: {
           target: "error",
           actions: assign({
-            error: ({ event }) =>
-              event.error instanceof Error
-                ? event.error.message
-                : "Failed to load font face",
+            error: FONT_FACE_ERROR,
             sourceUrl: null,
           }),
         },

@@ -82,7 +82,7 @@ export function useFontSpecimen() {
     metaLine,
     isReady: shell.specimenIsReady,
     isLoading: shell.specimenIsLoading,
-    isError: shell.specimenIsError,
+    isError: shell.specimenError != null,
     error: shell.specimenError,
     retryProps: shell.retrySpecimenProps,
     hasSelection: shell.selectedFontId != null,

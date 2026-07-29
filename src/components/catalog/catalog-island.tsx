@@ -103,7 +103,10 @@ function CatalogIslandInner({ className }: { className?: string }) {
         <FilterChips />
         <FontSpecimen />
         <FontUsePanel />
-        <CatalogErrorBoundary label="font list">
+        <CatalogErrorBoundary
+          label="font list"
+          onRetry={shell.retryCatalogProps.onClick}
+        >
           {shell.denseMode ? <DenseFontTable /> : <FontList />}
         </CatalogErrorBoundary>
       </section>

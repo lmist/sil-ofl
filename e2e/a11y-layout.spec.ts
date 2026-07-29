@@ -123,10 +123,51 @@ async function installFailingFontFace(page: Page): Promise<void> {
   });
 }
 
-async function installDenseRenderFailure(page: Page): Promise<void> {
+async function installRetryingFontFace(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    let attempts = 0;
+    const harness = window as Window & {
+      __resolveRetryingFontFace?: () => void;
+    };
+
+    class RetryingFontFace {
+      load(): Promise<this> {
+        attempts += 1;
+        if (attempts <= 2) {
+          return Promise.reject(new Error("Font face unavailable"));
+        }
+        return new Promise((resolve) => {
+          harness.__resolveRetryingFontFace = () => resolve(this);
+        });
+      }
+    }
+
+    Object.defineProperty(window, "FontFace", {
+      configurable: true,
+      value: RetryingFontFace,
+    });
+    Object.defineProperty(document.fonts, "add", {
+      configurable: true,
+      value: () => document.fonts,
+    });
+  });
+}
+
+async function installDenseRenderFailure(
+  page: Page,
+  options: { once?: boolean } = {},
+): Promise<() => number> {
+  let interceptedRequests = 0;
+
   await page.route("**/api/graphql**", async (route) => {
     const body = route.request().postDataJSON() as { query?: string };
     if (!/\bquery\s+Fonts\b/.test(body.query ?? "")) {
+      await route.fallback();
+      return;
+    }
+
+    interceptedRequests += 1;
+    if (options.once && interceptedRequests > 1) {
       await route.fallback();
       return;
     }
@@ -152,6 +193,8 @@ async function installDenseRenderFailure(page: Page): Promise<void> {
       }),
     });
   });
+
+  return () => interceptedRequests;
 }
 
 async function installReplacementFailure(
@@ -539,6 +582,32 @@ test.describe("catalog accessibility and responsive layout", () => {
     );
   });
 
+  test("specimen recovery keeps its error visible until retry succeeds", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await installRetryingFontFace(page);
+    await mockGraphql();
+    await page.goto("/?font=101");
+    await waitForCatalog(page);
+
+    const specimen = page.locator("[data-font-specimen]");
+    const error = specimen.getByText(/Specimen error:/);
+    await expect(error).toBeVisible();
+
+    await error.getByRole("button", { name: "Retry" }).click();
+
+    await expect(specimen.getByText("Loading specimen face…")).toBeVisible();
+    await expect(error).toBeVisible();
+    await page.evaluate(() => {
+      const harness = window as Window & {
+        __resolveRetryingFontFace?: () => void;
+      };
+      harness.__resolveRetryingFontFace?.();
+    });
+    await expect(error).toHaveCount(0);
+  });
+
   test("catalog render recovery has a 24px target", async ({
     page,
     mockGraphql,
@@ -551,9 +620,33 @@ test.describe("catalog accessibility and responsive layout", () => {
     await page.getByRole("button", { name: "Dense table mode" }).click();
     const boundary = page.locator("[data-catalog-error-boundary]");
     await expect(boundary).toBeVisible();
+    await expect(boundary).toContainText(
+      "Something went wrong rendering the font list.",
+    );
+    await expect(boundary).not.toContainText(/TypeError|toLocaleString/);
     await expectMinimumTargetSize(
       boundary.getByRole("button", { name: "Try again" }),
     );
+  });
+
+  test("catalog render recovery refetches current data", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await mockGraphql();
+    const requestCount = await installDenseRenderFailure(page, { once: true });
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    await page.getByRole("button", { name: "Dense table mode" }).click();
+    const boundary = page.locator("[data-catalog-error-boundary]");
+    await expect(boundary).toBeVisible();
+
+    await boundary.getByRole("button", { name: "Try again" }).click();
+
+    await expect.poll(requestCount).toBeGreaterThan(1);
+    await expect(boundary).toHaveCount(0);
+    await expect(page.locator(DENSE_TABLE)).toBeVisible();
   });
 
   test("catalog render error copy meets minimum contrast", async ({

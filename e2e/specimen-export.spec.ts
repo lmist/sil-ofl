@@ -256,7 +256,7 @@ test.describe("specimen and export regressions", () => {
       page.getByRole("link", { name: /^Open .* on GitHub$/ }),
     ).toHaveCount(0);
     await expect(page.locator("[data-font-specimen]")).toContainText(
-      "Specimen error: Font CDN URL is unavailable",
+      "Specimen error: Font face is unavailable.",
     );
     await expect(
       page.locator("[data-font-specimen]").getByRole("button", {
