@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { describe, it } from "node:test";
 import ts from "typescript";
+
+const require = createRequire(import.meta.url);
 
 const DOCUMENTED_E2E_DATA_CONTRACTS = [
   {
@@ -201,6 +204,16 @@ type ConductorSettings = {
 };
 
 describe("repository workspace contract", () => {
+  it("keeps the patched legacy glob engine compatible with safe brace expansion", () => {
+    const minimatch = require("minimatch") as (
+      path: string,
+      pattern: string,
+    ) => boolean;
+
+    assert.equal(minimatch("src/file.ts", "src/*.{js,ts}"), true);
+    assert.equal(minimatch("src/file2.ts", "src/file{1..3}.ts"), true);
+  });
+
   it("keeps Conductor setup and verification on isolated Bun commands", () => {
     const parsed = spawnSync(
       process.execPath,
@@ -248,11 +261,33 @@ describe("repository workspace contract", () => {
       "playwright test",
     );
     assert.equal(packageJson.scripts.test, "bun scripts/run-tests.ts");
+    assert.equal(packageJson.scripts.audit, "bun audit");
     assert.match(packageJson.scripts["test:machines"] ?? "", /^bun test /);
     assert.equal(
       packageJson.scripts.verify,
-      "bun run lint && bun run typecheck && bun run test && bun run build && bun run test:e2e",
+      "bun run audit && bun run lint && bun run typecheck && bun run test && bun run build && bun run test:e2e",
     );
+    const dependencyAuditWorkflow = readFileSync(
+      ".github/workflows/dependency-audit.yml",
+      "utf8",
+    );
+    assert.match(
+      dependencyAuditWorkflow,
+      /uses: actions\/checkout@[0-9a-f]{40}/,
+    );
+    assert.match(
+      dependencyAuditWorkflow,
+      /uses: oven-sh\/setup-bun@[0-9a-f]{40}/,
+    );
+    assert.match(dependencyAuditWorkflow, /persist-credentials: false/);
+    assert.match(dependencyAuditWorkflow, /run: bun ci --ignore-scripts/);
+    assert.match(dependencyAuditWorkflow, /run: bun audit/);
+    const dependabotConfig = readFileSync(
+      ".github/dependabot.yml",
+      "utf8",
+    );
+    assert.match(dependabotConfig, /package-ecosystem: bun/);
+    assert.match(dependabotConfig, /package-ecosystem: github-actions/);
     const isolatedRunnerSource = readFileSync(
       "scripts/run-isolated-e2e.ts",
       "utf8",

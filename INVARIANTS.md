@@ -317,7 +317,8 @@ selection events for the current face MUST NOT start duplicate face work.
 
 JavaScript and TypeScript setup, development, tests, and build commands MUST use
 Bun. The repository MUST carry one authoritative Bun lockfile and declare its
-Bun package manager version.
+Bun package manager version. Automated JavaScript dependency version updates
+MUST use Dependabot's Bun ecosystem.
 
 ### INV-REPO-2 — Workspaces are isolated
 
@@ -327,12 +328,12 @@ Parallel workspaces MUST NOT share a fixed development port.
 
 ### INV-REPO-3 — Quality gates stay green
 
-`bun run lint`, `bun run typecheck`, `bun run test`, `bun run test:e2e`, and
-`bun run build` MUST pass before integration. A bug fix MUST include a
-regression test that failed against the faulty behavior and passes with the
-fix. A gate runner with an active child MUST forward every registered
-termination signal until cleanup, remove its signal listeners during cleanup,
-and retain the first received signal as the parent outcome.
+`bun run audit`, `bun run lint`, `bun run typecheck`, `bun run test`,
+`bun run test:e2e`, and `bun run build` MUST pass before integration. A bug fix
+MUST include a regression test that failed against the faulty behavior and
+passes with the fix. A gate runner with an active child MUST forward every
+registered termination signal until cleanup, remove its signal listeners
+during cleanup, and retain the first received signal as the parent outcome.
 
 ### INV-REPO-4 — Browser tests use public semantics
 
@@ -660,6 +661,7 @@ tests in the same commit.
 
 - `INV-REPO-1` — Production: [package scripts](package.json),
   [Bun lockfile](bun.lock),
+  [Dependabot version-update policy](.github/dependabot.yml),
   [Conductor settings](.conductor/settings.toml), and
   [unit-test runner](scripts/run-tests.ts). Regression:
   [repository contract tests](scripts/repository-contract.test.ts).
@@ -671,6 +673,7 @@ tests in the same commit.
   [repository contract tests](scripts/repository-contract.test.ts) and
   [isolated E2E tests](scripts/isolated-e2e.test.ts).
 - `INV-REPO-3` — Production: [package scripts](package.json),
+  [dependency audit workflow](.github/workflows/dependency-audit.yml),
   [child-process lifecycle](scripts/live-child-process.ts),
   [live GraphQL smoke](scripts/live-graphql-smoke.ts),
   [unit-test runner](scripts/run-tests.ts),
