@@ -416,6 +416,8 @@ describe("GraphQL resolver SQL contracts", () => {
       "(f.family_guess > $5 OR (f.family_guess = $5 AND f.id > $6) OR f.family_guess IS NULL)",
     );
 
+    const repoQueryCanary = "REPO_QUERY_BIND_CANARY_%_'\"";
+    const repoOwnerCanary = "REPO_OWNER_BIND_CANARY_%_'\"";
     const repoCapture = createSqlCapture();
     const repoResult = await graphql({
       schema,
@@ -427,8 +429,8 @@ describe("GraphQL resolver SQL contracts", () => {
       }`,
       variableValues: {
         filter: {
-          q: "Alpha",
-          owner: "owner",
+          q: repoQueryCanary,
+          owner: repoOwnerCanary,
           minStars: 3,
           withFonts: true,
         },
@@ -448,9 +450,32 @@ describe("GraphQL resolver SQL contracts", () => {
       "(r.reputation, r.id) < ($4, $5)",
       repoWhereClauseOf,
     );
+    const repoCount = repoCapture.queryCalls.find((call) =>
+      call.text.startsWith("SELECT COUNT(*)::int AS total"),
+    );
+    const repoList = repoCapture.queryCalls.find((call) => call !== repoCount);
+    assert.ok(repoList);
+    assert.ok(repoCount);
+    assert.deepEqual(repoList.params, [
+      3,
+      repoOwnerCanary,
+      `%${repoQueryCanary}%`,
+      9,
+      41,
+      2,
+    ]);
+    assert.deepEqual(repoCount.params, [
+      3,
+      repoOwnerCanary,
+      `%${repoQueryCanary}%`,
+    ]);
+    for (const call of repoCapture.queryCalls) {
+      assert.equal(call.text.includes(repoQueryCanary), false);
+      assert.equal(call.text.includes(repoOwnerCanary), false);
+    }
   });
 
-  it("rejects page sizes outside 1 through 100 before querying", async () => {
+  it("rejects page sizes outside 1 through 100 before SQL access", async () => {
     const invalidFirstValues = [
       { value: 0, policyError: true },
       { value: -1, policyError: true },
@@ -464,18 +489,19 @@ describe("GraphQL resolver SQL contracts", () => {
 
     for (const field of ["fonts", "repos"] as const) {
       for (const { value, policyError } of invalidFirstValues) {
-        const { contextValue, calls } = createSqlCapture();
+        const capture = createSqlCapture();
         const result = await graphql({
           schema,
           source: `query PageSize($first: Int) {
             ${field}(first: $first) { totalCount }
           }`,
           variableValues: { first: value },
-          contextValue,
+          contextValue: capture.contextValue,
         });
 
         assert.ok(result.errors?.length, `${field} first=${value} should fail`);
-        assert.equal(calls.length, 0);
+        assert.equal(capture.sqlAccesses, 0);
+        assert.equal(capture.calls.length, 0);
         if (policyError) {
           assert.equal(result.errors[0]!.extensions.code, "BAD_USER_INPUT");
           assert.equal(
@@ -519,17 +545,18 @@ describe("GraphQL resolver SQL contracts", () => {
     ];
 
     for (const id of invalidIds) {
-      const { contextValue, calls } = createSqlCapture();
+      const capture = createSqlCapture();
       const result = await graphql({
         schema,
         source: `query FontId($id: ID!) {
           font(id: $id) { id }
         }`,
         variableValues: { id },
-        contextValue,
+        contextValue: capture.contextValue,
       });
 
-      assert.equal(calls.length, 0);
+      assert.equal(capture.sqlAccesses, 0);
+      assert.equal(capture.calls.length, 0);
       assert.equal(result.errors?.[0]?.extensions.code, "BAD_USER_INPUT");
       assert.equal(
         result.errors?.[0]?.message,
@@ -610,6 +637,90 @@ describe("GraphQL resolver SQL contracts", () => {
     assert.deepEqual(calls[0]?.params, [fontFileId]);
   });
 
+  it("serializes a positive-safe PostgreSQL BIGINT repository ID", async () => {
+    const repoId = Number.MAX_SAFE_INTEGER;
+    const calls: SqlCall[] = [];
+    const query = async (text: string, params: unknown[] = []) => {
+      calls.push({ text: normalizeSql(text), params });
+      return [
+        {
+          id: String(repoId),
+          full_name: "owner/repo",
+          name: "repo",
+          description: null,
+          html_url: "https://github.com/owner/repo",
+          stars: 10,
+          reputation: 20,
+          license_spdx: "OFL-1.1",
+          default_branch: "main",
+          owner_login: "owner",
+          font_count: "1",
+        },
+      ];
+    };
+
+    const result = await graphql({
+      schema,
+      source: `{
+        repo(owner: "owner", name: "repo") {
+          id
+          fullName
+          fontCount
+        }
+      }`,
+      contextValue: { getSql: () => ({ query }) },
+    });
+
+    assert.equal(result.errors, undefined);
+    assert.deepEqual({ ...(result.data?.repo as object) }, {
+      id: String(repoId),
+      fullName: "owner/repo",
+      fontCount: 1,
+    });
+    assert.deepEqual(calls[0]?.params, ["owner/repo"]);
+  });
+
+  it("rejects an unsafe PostgreSQL BIGINT repository ID before serialization", async () => {
+    const calls: SqlCall[] = [];
+    const query = async (text: string, params: unknown[] = []) => {
+      calls.push({ text: normalizeSql(text), params });
+      return [
+        {
+          id: "9007199254740992",
+          full_name: "owner/repo",
+          name: "repo",
+          description: null,
+          html_url: "https://github.com/owner/repo",
+          stars: 10,
+          reputation: 20,
+          license_spdx: "OFL-1.1",
+          default_branch: "main",
+          owner_login: "owner",
+          font_count: "1",
+        },
+      ];
+    };
+
+    const result = await graphql({
+      schema,
+      source: `{
+        repo(owner: "owner", name: "repo") {
+          id
+        }
+      }`,
+      contextValue: { getSql: () => ({ query }) },
+    });
+
+    assert.deepEqual({ ...(result.data as object) }, { repo: null });
+    assert.equal(result.errors?.length, 1);
+    assert.equal(
+      result.errors?.[0]?.message,
+      "repo id must be a positive safe integer",
+    );
+    assert.deepEqual(result.errors?.[0]?.path, ["repo"]);
+    assert.deepEqual(calls[0]?.params, ["owner/repo"]);
+  });
+
   it("reports malformed and out-of-contract cursors as safe client input", async () => {
     const cases = [
       {
@@ -667,17 +778,18 @@ describe("GraphQL resolver SQL contracts", () => {
     ] as const;
 
     for (const { field, cursor } of cases) {
-      const { contextValue, calls } = createSqlCapture();
+      const capture = createSqlCapture();
       const result = await graphql({
         schema,
         source: `query Cursor($after: String) {
           ${field}(after: $after) { totalCount }
         }`,
         variableValues: { after: cursor },
-        contextValue,
+        contextValue: capture.contextValue,
       });
 
-      assert.equal(calls.length, 0);
+      assert.equal(capture.sqlAccesses, 0);
+      assert.equal(capture.calls.length, 0);
       assert.equal(result.errors?.[0]?.extensions.code, "BAD_USER_INPUT");
       assert.equal(result.errors?.[0]?.message, "after must be a valid cursor");
     }

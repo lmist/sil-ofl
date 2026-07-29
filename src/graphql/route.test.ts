@@ -755,6 +755,114 @@ describe("GraphQL HTTP policy", () => {
     }
   });
 
+  it("rejects missing and unsupported POST media types with negotiated JSON", async () => {
+    const cases = [
+      {
+        label: "missing Content-Type",
+        accept: "application/json",
+        contentType: null,
+      },
+      {
+        label: "unsupported text/plain",
+        accept: "application/graphql-response+json",
+        contentType: "text/plain",
+      },
+    ] as const;
+
+    for (const { label, accept, contentType } of cases) {
+      const headers = new Headers({ Accept: accept });
+      if (contentType) headers.set("Content-Type", contentType);
+      const response = await POST(
+        request(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ query: "{ health { ok } }" }),
+        }),
+      );
+
+      assert.equal(response.status, 415, label);
+      assert.equal(
+        response.headers.get("Content-Type"),
+        `${accept}; charset=utf-8`,
+        label,
+      );
+      assert.deepEqual(
+        await response.json(),
+        {
+          errors: [{ message: "Unsupported GraphQL Content-Type." }],
+        },
+        label,
+      );
+      assert.equal(
+        response.headers.get("Cache-Control"),
+        "private, no-store",
+        label,
+      );
+    }
+  });
+
+  it("rejects unsupported POST media types before size checks or body reads", async () => {
+    const oversizedResponse = await POST(
+      request(endpoint, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Length": "40000",
+        },
+        body: "{}",
+      }),
+    );
+
+    assert.equal(oversizedResponse.status, 415);
+    assert.equal(
+      oversizedResponse.headers.get("Content-Type"),
+      "application/json; charset=utf-8",
+    );
+    assert.deepEqual(await oversizedResponse.json(), {
+      errors: [{ message: "Unsupported GraphQL Content-Type." }],
+    });
+    assert.equal(
+      oversizedResponse.headers.get("Cache-Control"),
+      "private, no-store",
+    );
+
+    let bodyReads = 0;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          bodyReads += 1;
+          controller.error(new Error("unsupported body must not be read"));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const unreadResponse = await POST(
+      request(endpoint, {
+        method: "POST",
+        headers: {
+          Accept: "application/graphql-response+json",
+          "Content-Type": "text/plain",
+        },
+        body,
+        duplex: "half",
+      } as RequestInit),
+    );
+
+    assert.equal(bodyReads, 0);
+    assert.equal(unreadResponse.status, 415);
+    assert.equal(
+      unreadResponse.headers.get("Content-Type"),
+      "application/graphql-response+json; charset=utf-8",
+    );
+    assert.deepEqual(await unreadResponse.json(), {
+      errors: [{ message: "Unsupported GraphQL Content-Type." }],
+    });
+    assert.equal(
+      unreadResponse.headers.get("Cache-Control"),
+      "private, no-store",
+    );
+  });
+
   it("rejects combined Content-Type field values instead of choosing the first", async () => {
     for (const contentType of [
       "application/json, application/graphql",
@@ -1361,13 +1469,85 @@ describe("GraphQL HTTP policy", () => {
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
   });
 
-  it("does not reflect invalid GraphQL variable values in any negotiated encoding", async () => {
+  it("does not reflect invalid GraphQL variable names or values in any negotiated encoding", async () => {
     const privateMarker = "private-variable-marker-7d2ca3";
     const query = `
       query InvalidPageSize($first: Int!) {
         fonts(first: $first) { totalCount }
       }
     `;
+    const requiredVariableCanary = "SENSITIVE_REQUIRED_VARIABLE_CANARY";
+    const requiredVariableQuery =
+      `query Required($${requiredVariableCanary}: Int!) { ` +
+      `fonts(first: $${requiredVariableCanary}) { totalCount } }`;
+
+    for (const method of ["GET", "POST"] as const) {
+      for (const accept of [
+        "application/json",
+        "application/graphql-response+json",
+      ]) {
+        for (const variables of [
+          {},
+          { [requiredVariableCanary]: null },
+        ]) {
+          const response =
+            method === "GET"
+              ? await GET(
+                  request(
+                    `${endpoint}?${new URLSearchParams({
+                      query: requiredVariableQuery,
+                      variables: JSON.stringify(variables),
+                    })}`,
+                    { headers: { Accept: accept } },
+                  ),
+                )
+              : await POST(
+                  request(endpoint, {
+                    method: "POST",
+                    headers: {
+                      Accept: accept,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      query: requiredVariableQuery,
+                      variables,
+                    }),
+                  }),
+                );
+          const serialized = await response.text();
+          const result = JSON.parse(serialized) as {
+            errors?: Array<{
+              message?: string;
+              extensions?: { code?: string };
+            }>;
+          };
+          const caseLabel = `${method} ${accept} ${JSON.stringify(variables)}`;
+
+          assert.equal(response.status, 400, caseLabel);
+          assert.doesNotMatch(
+            serialized,
+            new RegExp(requiredVariableCanary),
+            caseLabel,
+          );
+          assert.equal(
+            result.errors?.[0]?.message,
+            "GraphQL variables contain invalid values.",
+            caseLabel,
+          );
+          assert.equal(
+            result.errors?.[0]?.extensions?.code,
+            "BAD_USER_INPUT",
+            caseLabel,
+          );
+          assert.equal(
+            response.headers.get("Cache-Control"),
+            "private, no-store",
+            caseLabel,
+          );
+        }
+      }
+    }
+
     const acceptCases = [
       {
         accept: "application/graphql-response+json",
@@ -1503,6 +1683,80 @@ describe("GraphQL HTTP policy", () => {
           "private, no-store",
           caseLabel,
         );
+      }
+    }
+  });
+
+  it("does not reflect submitted document tokens in parse or validation errors", async () => {
+    const cases = [
+      {
+        query: "query { SENSITIVE_VALIDATION_CANARY }",
+        canary: "SENSITIVE_VALIDATION_CANARY",
+        code: "GRAPHQL_VALIDATION_FAILED",
+        message: "GraphQL operation is invalid.",
+      },
+      {
+        query:
+          "query { health { ok } } SENSITIVE_PARSE_CANARY",
+        canary: "SENSITIVE_PARSE_CANARY",
+        code: "GRAPHQL_PARSE_FAILED",
+        message: "GraphQL document is invalid.",
+      },
+    ] as const;
+
+    for (const method of ["GET", "POST"] as const) {
+      for (const accept of [
+        "application/json",
+        "application/graphql-response+json",
+      ]) {
+        for (const testCase of cases) {
+          const response =
+            method === "GET"
+              ? await GET(
+                  request(
+                    `${endpoint}?${new URLSearchParams({
+                      query: testCase.query,
+                    })}`,
+                    { headers: { Accept: accept } },
+                  ),
+                )
+              : await POST(
+                  request(endpoint, {
+                    method: "POST",
+                    headers: {
+                      Accept: accept,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ query: testCase.query }),
+                  }),
+                );
+          const serialized = await response.text();
+          const result = JSON.parse(serialized) as {
+            errors?: Array<{
+              message?: string;
+              extensions?: { code?: string };
+            }>;
+          };
+          const label = `${method} ${accept} ${testCase.code}`;
+
+          assert.equal(
+            response.status,
+            accept === "application/json" ? 200 : 400,
+            label,
+          );
+          assert.doesNotMatch(serialized, new RegExp(testCase.canary), label);
+          assert.equal(result.errors?.[0]?.message, testCase.message, label);
+          assert.equal(
+            result.errors?.[0]?.extensions?.code,
+            testCase.code,
+            label,
+          );
+          assert.equal(
+            response.headers.get("Cache-Control"),
+            "private, no-store",
+            label,
+          );
+        }
       }
     }
   });

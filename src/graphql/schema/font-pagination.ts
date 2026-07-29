@@ -46,7 +46,7 @@ export function fontKeyset(
   sort: FontSortValue,
   cursor: FontCursorKey,
   paramStart: number,
-): { sql: string; values: unknown[] } {
+): { sql: string; values: Array<string | number> } {
   const p = (offset: number) => `$${paramStart + offset}`;
   switch (sort) {
     case "REPUTATION_ASC":

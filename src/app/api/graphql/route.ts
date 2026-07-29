@@ -740,7 +740,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const VARIABLE_COERCION_ERROR =
-  /^Variable "\$[_A-Za-z][_0-9A-Za-z]*" got invalid value\b/;
+  /^Variable "\$[_A-Za-z][_0-9A-Za-z]*" (?:got invalid value\b|of (?:required|non-null) type\b)/;
 
 function sanitizeGraphqlErrors(result: unknown): void {
   if (Array.isArray(result)) {
@@ -751,7 +751,16 @@ function sanitizeGraphqlErrors(result: unknown): void {
 
   for (const error of result.errors) {
     if (!isRecord(error)) continue;
-    if (
+    const errorCode =
+      isRecord(error.extensions) &&
+      typeof error.extensions.code === "string"
+        ? error.extensions.code
+        : null;
+    if (errorCode === "GRAPHQL_PARSE_FAILED") {
+      error.message = "GraphQL document is invalid.";
+    } else if (errorCode === "GRAPHQL_VALIDATION_FAILED") {
+      error.message = "GraphQL operation is invalid.";
+    } else if (
       typeof error.message === "string" &&
       VARIABLE_COERCION_ERROR.test(error.message)
     ) {
@@ -975,7 +984,11 @@ export async function POST(request: Request): Promise<Response> {
       "Only JSON GraphQL responses are supported.",
     );
   }
-  if (inspectContentType(request).kind === "invalid") {
+  const contentType = inspectContentType(request);
+  if (
+    contentType.kind !== "valid" ||
+    !NORMALIZED_GRAPHQL_POST_MEDIA_TYPES.has(contentType.mediaType)
+  ) {
     return graphqlErrorResponse(
       request,
       415,
