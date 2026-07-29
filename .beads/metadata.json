@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "silofl",
+  "project_id": "9627c9d6-9be2-489d-bb3a-e4bb36d76e09"
+}
