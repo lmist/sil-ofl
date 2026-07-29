@@ -9,10 +9,37 @@ type ClipboardHarness = {
   lastText: string | null;
 };
 
+type LegacyCopyOutcome = "success" | "false" | "throw";
+
 declare global {
   interface Window {
     __clipboardHarness: ClipboardHarness;
   }
+}
+
+async function forceLegacyClipboard(
+  page: import("@playwright/test").Page,
+  outcome: LegacyCopyOutcome,
+): Promise<void> {
+  await page.addInitScript((legacyOutcome) => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new DOMException("Denied", "NotAllowedError");
+        },
+      },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: () => {
+        if (legacyOutcome === "throw") {
+          throw new DOMException("Copy failed", "NotAllowedError");
+        }
+        return legacyOutcome === "success";
+      },
+    });
+  }, outcome);
 }
 
 async function openCatalog(
@@ -153,4 +180,31 @@ test.describe("specimen and export regressions", () => {
     ).toBeEnabled();
     expect(unsafeRequests).toEqual([]);
   });
+
+  for (const outcome of ["success", "false", "throw"] as const) {
+    test(`legacy clipboard ${outcome} restores focus to its copy control`, async ({
+      page,
+      mockGraphql,
+    }) => {
+      await forceLegacyClipboard(page, outcome);
+      await openCatalog(page, mockGraphql);
+      await page.locator("[data-font-row]").first().click();
+
+      const copyCdn = page.getByRole("button", { name: "Copy CDN URL" });
+      await copyCdn.focus();
+      await expect(copyCdn).toBeFocused();
+      await copyCdn.click();
+
+      if (outcome === "success") {
+        await expect(
+          page.locator('[data-copy-feedback][role="status"]'),
+        ).toHaveText("CDN URL copied.");
+      } else {
+        await expect(
+          page.locator('[data-copy-feedback][role="alert"]'),
+        ).toHaveText("Copy failed. Try again.");
+      }
+      await expect(copyCdn).toBeFocused();
+    });
+  }
 });

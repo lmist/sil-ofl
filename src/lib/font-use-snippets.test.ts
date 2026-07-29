@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import postcss from "postcss";
 import ts from "typescript";
 import {
   buildFontUseSnippets,
@@ -38,6 +39,62 @@ const sample: FontFile = {
 function available(value: string | null): string {
   assert.ok(value);
   return value;
+}
+
+function parseReactArtifact(source: string): {
+  embeddedCss: string;
+  inlineFamily: string;
+} {
+  const result = ts.transpileModule(source, {
+    fileName: "font-example.tsx",
+    reportDiagnostics: true,
+    compilerOptions: {
+      jsx: ts.JsxEmit.ReactJSX,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  });
+  const syntaxErrors = (result.diagnostics ?? [])
+    .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
+    .map((diagnostic) =>
+      ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+    );
+  assert.deepEqual(syntaxErrors, []);
+
+  const sourceFile = ts.createSourceFile(
+    "font-example.tsx",
+    source,
+    ts.ScriptTarget.ES2022,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  let embeddedCss: string | null = null;
+  let inlineFamily: string | null = null;
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(sourceFile) === "style"
+    ) {
+      const expression = node.children.find(ts.isJsxExpression)?.expression;
+      if (expression && ts.isStringLiteral(expression)) {
+        embeddedCss = expression.text;
+      }
+    }
+    if (
+      ts.isPropertyAssignment(node) &&
+      node.name.getText(sourceFile) === "fontFamily" &&
+      ts.isStringLiteral(node.initializer)
+    ) {
+      inlineFamily = node.initializer.text;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  assert.ok(embeddedCss);
+  assert.ok(inlineFamily);
+  return { embeddedCss, inlineFamily };
 }
 
 describe("font-use-snippets", () => {
@@ -132,6 +189,33 @@ describe("font-use-snippets", () => {
     assert.doesNotMatch(
       JSON.stringify(s),
       /fonts\.evil\.example|javascript:|http:\/\/raw\.githubusercontent\.com/,
+    );
+  });
+
+  it("target-escapes hostile metadata without changing the family identity", () => {
+    const family = "O'Brien </title><script>alert(1)</script>\n\\face";
+    const s = buildFontUseSnippets({
+      ...sample,
+      familyGuess: family,
+      fullName: "o/r */ body{display:none} /*",
+    });
+    const css = available(s.css);
+    const cssRoot = postcss.parse(css);
+    const injectedBody = cssRoot.nodes.find(
+      (node) => node.type === "rule" && node.selector === "body",
+    );
+    const react = parseReactArtifact(available(s.react));
+
+    postcss.parse(react.embeddedCss);
+    assert.equal(injectedBody?.toString(), undefined);
+    assert.equal(s.family, family);
+    assert.equal(
+      react.inlineFamily,
+      `${family}, system-ui, sans-serif`,
+    );
+    assert.match(
+      available(s.html),
+      /<title>O'Brien &lt;\/title&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;\n\\face<\/title>/,
     );
   });
 });

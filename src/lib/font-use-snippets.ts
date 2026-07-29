@@ -24,15 +24,59 @@ export function cssFormatHint(format: string): string {
 
 /** Safe CSS font-family name (quoted). */
 export function familyName(font: Pick<FontFile, "familyGuess" | "fileName">): string {
-  const raw =
-    (font.familyGuess && font.familyGuess.trim()) ||
-    font.fileName.replace(/\.(ttf|otf|woff2?|ttc)$/i, "").replace(/[-_]/g, " ");
-  return raw.replace(/['"]/g, "").trim() || "CustomFont";
+  const guessed = font.familyGuess?.trim();
+  if (guessed) return guessed;
+
+  return (
+    font.fileName
+      .replace(/\.(ttf|otf|woff2?|ttc)$/i, "")
+      .replace(/[-_]/g, " ")
+      .trim() || "CustomFont"
+  );
+}
+
+function cssStringContents(value: string): string {
+  let escaped = "";
+
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    if (character === "\\") {
+      escaped += "\\\\";
+    } else if (character === "'") {
+      escaped += "\\'";
+    } else if (character === "\n") {
+      escaped += "\\A ";
+    } else if (character === "\r") {
+      escaped += "\\D ";
+    } else if (character === "\f") {
+      escaped += "\\C ";
+    } else if (character === "<") {
+      escaped += "\\3C ";
+    } else if (codePoint === 0) {
+      escaped += "\\FFFD ";
+    } else if (codePoint <= 0x1f || codePoint === 0x7f) {
+      escaped += `\\${codePoint.toString(16).toUpperCase()} `;
+    } else {
+      escaped += character;
+    }
+  }
+
+  return escaped;
+}
+
+function cssCommentText(value: string): string {
+  return value.replaceAll("\0", "\uFFFD").replaceAll("*/", "*\\/");
+}
+
+function htmlText(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 export function cssFontFamilyValue(name: string): string {
-  // Quote always — handles spaces and special chars safely.
-  return `'${name.replace(/'/g, "\\'")}'`;
+  return `'${cssStringContents(name)}'`;
 }
 
 export type FontUseSnippets = {
@@ -57,6 +101,9 @@ export type FontUseSnippets = {
 export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
   const family = familyName(font);
   const familyCss = cssFontFamilyValue(family);
+  const familyComment = cssCommentText(family);
+  const sourceComment = cssCommentText(font.fullName);
+  const familyHtml = htmlText(family);
   const weight = resolveFontWeight(font.weightGuess);
   const style = resolveFontStyle(font.styleGuess);
   const fmt = cssFormatHint(font.format);
@@ -74,8 +121,8 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
 
   const css = url
     ? [
-        `/* ${family} — SIL Open Font License`,
-        ` * Source: ${font.fullName}`,
+        `/* ${familyComment} — SIL Open Font License`,
+        ` * Source: ${sourceComment}`,
         ` * Prefer jsDelivr CDN for browser @font-face`,
         ` */`,
         `@font-face {`,
@@ -101,7 +148,7 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
         `<html lang="en">`,
         `<head>`,
         `  <meta charset="utf-8" />`,
-        `  <title>${family}</title>`,
+        `  <title>${familyHtml}</title>`,
         `  <style>`,
         `    @font-face {`,
         `      font-family: ${familyCss};`,
