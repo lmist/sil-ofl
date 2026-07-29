@@ -8,14 +8,18 @@ import { createActor, fromPromise } from "xstate";
 import { specimenMachine } from "./specimen-machine";
 
 function createTestSpecimen(options?: {
-  faceFail?: boolean;
+  faceFailures?: number;
   metaFail?: boolean;
   metaMissing?: boolean;
 }) {
+  let remainingFaceFailures = options?.faceFailures ?? 0;
   const machine = specimenMachine.provide({
     actors: {
       loadFontFace: fromPromise(async ({ input }) => {
-        if (options?.faceFail) throw new Error("face fail");
+        if (remainingFaceFailures > 0) {
+          remainingFaceFailures -= 1;
+          throw new Error("face fail");
+        }
         return { family: input.family, sourceUrl: input.cdnUrl };
       }),
       fetchFont: fromPromise(async ({ input }) => {
@@ -98,7 +102,7 @@ describe("specimenMachine", () => {
   });
 
   it("LOAD face error → error, RETRY recovers", async () => {
-    const actor = createTestSpecimen({ faceFail: true });
+    const actor = createTestSpecimen({ faceFailures: 1 });
     actor.send({
       type: "LOAD",
       fontId: 1,
@@ -109,17 +113,13 @@ describe("specimenMachine", () => {
     assert.equal(actor.getSnapshot().value, "error");
     assert.equal(actor.getSnapshot().context.error, "face fail");
 
-    // Re-provide success path via new actor for retry success is awkward;
-    // assert RETRY re-enters loadingFace with payload present.
-    const ok = createTestSpecimen();
-    ok.send({
-      type: "LOAD",
-      fontId: 1,
-      cdnUrl: "https://cdn.example/a.woff2",
-      family: "X",
-    });
+    actor.send({ type: "RETRY" });
+    assert.equal(actor.getSnapshot().value, "loadingFace");
+    assert.equal(actor.getSnapshot().context.error, "face fail");
+
     await new Promise((r) => setTimeout(r, 0));
-    assert.equal(ok.getSnapshot().value, "ready");
+    assert.equal(actor.getSnapshot().value, "ready");
+    assert.equal(actor.getSnapshot().context.error, null);
   });
 
   it("LOAD_BY_ID fetches meta then loads face", async () => {

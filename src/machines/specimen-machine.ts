@@ -435,12 +435,10 @@ export const specimenMachine = setup({
           {
             guard: "hasFacePayload",
             target: "loadingFace",
-            actions: assign({ error: null }),
           },
           {
             guard: ({ context }) => context.fontId != null,
             target: "loadingMeta",
-            actions: assign({ error: null }),
           },
         ],
       },
