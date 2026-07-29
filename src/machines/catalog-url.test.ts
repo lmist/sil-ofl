@@ -1,5 +1,5 @@
 /**
- * Run: npx tsx --test src/machines/catalog-url.test.ts
+ * Run: bun test src/machines/catalog-url.test.ts
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";

@@ -79,6 +79,7 @@ cp .env.example .env.local
 # set DATABASE_URL to your Neon pooled connection string
 
 bun install --frozen-lockfile
+bunx playwright install chromium
 bun run dev      # Turbopack
 bun run build
 bun run lint

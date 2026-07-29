@@ -30,7 +30,10 @@ export const test = base.extend<CatalogFixtures>({
       if (live) {
         return { mocked: false };
       }
-      await installGraphqlMock(page, mockOptions);
+      await installGraphqlMock(page, {
+        pageSizeOverride: 3,
+        ...mockOptions,
+      });
       return { mocked: true };
     });
   },

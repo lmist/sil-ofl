@@ -130,6 +130,18 @@ export const MOCK_FONTS_PAGE2: MockFontNode[] = [
   }),
 ];
 
+/** Sort-contract row kept out of default pages so UI fixture outcomes stay stable. */
+export const MOCK_NULL_FAMILY_FONT: MockFontNode = font({
+  fontFileId: 301,
+  familyGuess: null,
+  format: "ttf",
+  ownerLogin: "unidentified",
+  fileName: "Unknown-Regular.ttf",
+  repoName: "unknown-fonts",
+  stars: 300,
+  reputation: 65,
+});
+
 export const ALL_MOCK_FONTS = [...MOCK_FONTS_PAGE1, ...MOCK_FONTS_PAGE2];
 
 export const MOCK_STATS = {

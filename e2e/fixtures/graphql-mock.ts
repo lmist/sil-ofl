@@ -1,4 +1,4 @@
-import type { Page, Route } from "@playwright/test";
+import type { Page, Request as PlaywrightRequest, Route } from "@playwright/test";
 import {
   decodeFontCursor,
   encodeFontCursor,
@@ -10,7 +10,14 @@ import {
   type MockFontNode,
 } from "./mock-data";
 
-export type GraphqlMockOptions = {
+export type ResolveGraphqlMockOptions = {
+  /** Alternate font rows for focused contract fixtures. */
+  fontNodes?: readonly MockFontNode[];
+  /** Deliberate test-only page cap; production-shaped resolution honors `first`. */
+  pageSizeOverride?: number;
+};
+
+export type GraphqlMockOptions = ResolveGraphqlMockOptions & {
   /** Artificial delay (ms) for fonts responses — default 0 for tight interaction budgets. */
   fontsDelayMs?: number;
   /** When true, log mocked operations and their variables. */
@@ -76,7 +83,10 @@ function matchesQuery(node: MockFontNode, q: string): boolean {
   );
 }
 
-function filterFonts(nodes: MockFontNode[], filter: FontFilter | null): MockFontNode[] {
+function filterFonts(
+  nodes: readonly MockFontNode[],
+  filter: FontFilter | null,
+): readonly MockFontNode[] {
   if (!filter) return nodes;
   let out = nodes;
   const q = filter.q?.trim();
@@ -111,6 +121,25 @@ function compareString(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+function compareFamilies(
+  a: MockFontNode,
+  b: MockFontNode,
+  direction: "asc" | "desc",
+): number {
+  if (a.familyGuess == null && b.familyGuess == null) {
+    return direction === "asc"
+      ? compareNumber(a.fontFileId, b.fontFileId)
+      : compareNumber(b.fontFileId, a.fontFileId);
+  }
+  if (a.familyGuess == null) return 1;
+  if (b.familyGuess == null) return -1;
+  return direction === "asc"
+    ? compareString(a.familyGuess, b.familyGuess) ||
+        compareNumber(a.fontFileId, b.fontFileId)
+    : compareString(b.familyGuess, a.familyGuess) ||
+        compareNumber(b.fontFileId, a.fontFileId);
+}
+
 function compareFonts(
   a: MockFontNode,
   b: MockFontNode,
@@ -133,15 +162,9 @@ function compareFonts(
         compareNumber(a.fontFileId, b.fontFileId)
       );
     case "FAMILY_ASC":
-      return (
-        compareString(a.familyGuess ?? "", b.familyGuess ?? "") ||
-        compareNumber(a.fontFileId, b.fontFileId)
-      );
+      return compareFamilies(a, b, "asc");
     case "FAMILY_DESC":
-      return (
-        compareString(b.familyGuess ?? "", a.familyGuess ?? "") ||
-        compareNumber(b.fontFileId, a.fontFileId)
-      );
+      return compareFamilies(a, b, "desc");
     case "ID_ASC":
       return compareNumber(a.fontFileId, b.fontFileId);
     case "ID_DESC":
@@ -155,42 +178,36 @@ function compareFonts(
   }
 }
 
-function hasActiveFilter(filter: FontFilter | null): boolean {
-  return Boolean(
-    filter &&
-      (filter.q?.trim() ||
-        filter.owner?.trim() ||
-        (filter.format && filter.format.length > 0) ||
-        (filter.minStars != null && filter.minStars > 0) ||
-        filter.webfont != null ||
-        filter.variable != null),
-  );
-}
-
-function pageSize(first: number | null | undefined, filtered: boolean): number {
+function pageSize(
+  first: number | null | undefined,
+  override: number | undefined,
+): number {
   const requested =
     typeof first === "number" && Number.isFinite(first) ? Math.trunc(first) : 50;
   const bounded = Math.min(Math.max(requested, 1), 100);
-  // Keep the fixture's established two-page default while respecting explicit
-  // page sizes for filtered contract tests.
-  return filtered ? bounded : Math.min(bounded, MOCK_FONTS_PAGE1.length);
+  if (override == null || !Number.isFinite(override)) return bounded;
+  return Math.min(bounded, Math.min(Math.max(Math.trunc(override), 1), 100));
 }
 
 function fontsConnection(
   variables: GraphqlBody["variables"] | undefined,
-): FontConnection {
+  options: ResolveGraphqlMockOptions,
+): FontConnection | null {
+  const fontNodes = options.fontNodes ?? ALL_MOCK_FONTS;
   const filter = variables?.filter ?? null;
   const after = variables?.after ?? null;
   const sort = variables?.sort ?? "REPUTATION_DESC";
-  const filtered = hasActiveFilter(filter);
-  const matched = [...filterFonts(ALL_MOCK_FONTS, filter)].sort((a, b) =>
+  const matched = [...filterFonts(fontNodes, filter)].sort((a, b) =>
     compareFonts(a, b, sort),
   );
-  const first = pageSize(variables?.first, filtered);
+  const first = pageSize(variables?.first, options.pageSizeOverride);
   const cursor = after ? decodeFontCursor(after) : null;
   const cursorIndex = cursor
     ? matched.findIndex((node) => node.fontFileId === cursor.id)
     : -1;
+  if (after && (!cursor || cursorIndex < 0)) {
+    return null;
+  }
   const remaining = matched.slice(cursorIndex + 1);
   const page = remaining.slice(0, first);
   const edges = page.map(edge);
@@ -222,9 +239,9 @@ type MockRepoNode = {
   fontCount: number;
 };
 
-function mockRepos(): MockRepoNode[] {
+function mockRepos(fontNodes: readonly MockFontNode[]): MockRepoNode[] {
   const byId = new Map<number, MockRepoNode>();
-  for (const font of ALL_MOCK_FONTS) {
+  for (const font of fontNodes) {
     const existing = byId.get(font.repoId);
     if (existing) {
       existing.fontCount += 1;
@@ -249,9 +266,12 @@ function mockRepos(): MockRepoNode[] {
 
 function repoDetail(
   variables: GraphqlBody["variables"] | undefined,
+  fontNodes: readonly MockFontNode[],
 ): MockRepoNode | null {
   const fullName = `${variables?.owner ?? ""}/${variables?.name ?? ""}`;
-  return mockRepos().find((repo) => repo.fullName === fullName) ?? null;
+  return (
+    mockRepos(fontNodes).find((repo) => repo.fullName === fullName) ?? null
+  );
 }
 
 function detectOperation(body: GraphqlBody): string {
@@ -267,7 +287,11 @@ function detectOperation(body: GraphqlBody): string {
   return "Unknown";
 }
 
-export function resolveGraphqlMock(body: GraphqlBody): MockGraphqlResponse {
+export function resolveGraphqlMock(
+  body: GraphqlBody,
+  options: ResolveGraphqlMockOptions = {},
+): MockGraphqlResponse {
+  const fontNodes = options.fontNodes ?? ALL_MOCK_FONTS;
   const op = detectOperation(body);
   if (op === "Health") {
     return {
@@ -286,20 +310,23 @@ export function resolveGraphqlMock(body: GraphqlBody): MockGraphqlResponse {
   }
 
   if (op === "Fonts") {
-    return { data: { fonts: fontsConnection(body.variables) } };
+    const fonts = fontsConnection(body.variables, options);
+    return fonts
+      ? { data: { fonts } }
+      : { errors: [{ message: "Invalid cursor" }] };
   }
 
   if (op === "Font") {
     const id = body.variables?.id;
     const node =
-      ALL_MOCK_FONTS.find(
+      fontNodes.find(
         (font) => font.id === id || String(font.fontFileId) === id,
       ) ?? null;
     return { data: { font: node } };
   }
 
   if (op === "Repo") {
-    return { data: { repo: repoDetail(body.variables) } };
+    return { data: { repo: repoDetail(body.variables, fontNodes) } };
   }
 
   if (op === "Repos") {
@@ -319,6 +346,43 @@ export function resolveGraphqlMock(body: GraphqlBody): MockGraphqlResponse {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseUrlVariables(
+  value: string | null,
+): GraphqlBody["variables"] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed)
+      ? (parsed as GraphqlBody["variables"])
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseGraphqlRequest(request: PlaywrightRequest): GraphqlBody {
+  let postData: unknown;
+  try {
+    postData = request.postDataJSON();
+  } catch {
+    postData = undefined;
+  }
+
+  const body = isRecord(postData) ? (postData as GraphqlBody) : {};
+  const url = new URL(request.url());
+  return {
+    query: body.query ?? url.searchParams.get("query") ?? undefined,
+    operationName:
+      body.operationName ?? url.searchParams.get("operationName") ?? undefined,
+    variables:
+      body.variables ?? parseUrlVariables(url.searchParams.get("variables")),
+  };
+}
+
 async function fulfillGraphql(
   route: Route,
   options: GraphqlMockOptions,
@@ -329,14 +393,7 @@ async function fulfillGraphql(
     return;
   }
 
-  let body: GraphqlBody = {};
-  try {
-    body = request.postDataJSON() as GraphqlBody;
-  } catch {
-    const url = new URL(request.url());
-    const query = url.searchParams.get("query");
-    if (query) body = { query };
-  }
+  const body = parseGraphqlRequest(request);
 
   const op = detectOperation(body);
   if (options.debug) {
@@ -352,7 +409,7 @@ async function fulfillGraphql(
   await route.fulfill({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify(resolveGraphqlMock(body)),
+    body: JSON.stringify(resolveGraphqlMock(body, options)),
   });
 }
 

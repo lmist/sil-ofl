@@ -17,7 +17,8 @@ async function findFiles(directory: string, suffix: string): Promise<string[]> {
 
 const testFiles = [
   ...(await findFiles("src", ".test.ts")),
-  ...(await findFiles("e2e", ".unit.ts")),
+  ...(await findFiles("e2e", ".unit.test.ts")),
+  ...(await findFiles("scripts", ".test.ts")),
 ];
 testFiles.sort();
 
@@ -26,23 +27,47 @@ if (testFiles.length === 0) {
   process.exit(1);
 }
 
-console.log(`Running ${testFiles.length} test files:\n${testFiles.join("\n")}`);
+console.log(
+  `Running ${testFiles.length} test files with Bun:\n${testFiles.join("\n")}`,
+);
 
-const tests = spawn("tsx", ["--test", ...testFiles], {
-  cwd: process.cwd(),
-  env: process.env,
-  stdio: "inherit",
-});
+const tests = spawn(
+  process.execPath,
+  ["test", ...process.argv.slice(2), ...testFiles],
+  {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: "inherit",
+  },
+);
 
-const exitCode = await new Promise<number>((resolve, reject) => {
+const forwardedSignals: NodeJS.Signals[] = ["SIGHUP", "SIGINT", "SIGTERM"];
+const signalHandlers = new Map<NodeJS.Signals, () => void>();
+for (const signal of forwardedSignals) {
+  const handler = () => {
+    tests.kill(signal);
+  };
+  signalHandlers.set(signal, handler);
+  process.once(signal, handler);
+}
+
+const result = await new Promise<{
+  code: number | null;
+  signal: NodeJS.Signals | null;
+}>((resolve, reject) => {
   tests.once("error", reject);
   tests.once("exit", (code, signal) => {
-    if (signal) {
-      reject(new Error(`Test runner exited from signal ${signal}`));
-      return;
-    }
-    resolve(code ?? 1);
+    resolve({ code, signal });
   });
 });
 
-process.exit(exitCode);
+for (const [signal, handler] of signalHandlers) {
+  process.removeListener(signal, handler);
+}
+
+if (result.signal) {
+  process.kill(process.pid, result.signal);
+  await new Promise(() => {});
+}
+
+process.exit(result.code ?? 1);

@@ -1,6 +1,6 @@
 /**
  * Pure createActor unit tests for catalogMachine.
- * Run: npx tsx --test src/machines/catalog-machine.test.ts
+ * Run: bun test src/machines/catalog-machine.test.ts
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
