@@ -193,8 +193,11 @@ function graphqlErrorResponse(
   );
 }
 
-function hasValidGetVariables(searchParams: URLSearchParams): boolean {
-  const source = searchParams.get("variables");
+function hasValidSerializedObject(
+  searchParams: URLSearchParams,
+  parameter: "extensions" | "variables",
+): boolean {
+  const source = searchParams.get(parameter);
   if (source === null || source === "") return true;
 
   try {
@@ -206,6 +209,16 @@ function hasValidGetVariables(searchParams: URLSearchParams): boolean {
   } catch {
     return false;
   }
+}
+
+function isFormEncodedRequest(request: Request): boolean {
+  return (
+    request.headers
+      .get("Content-Type")
+      ?.split(";")[0]
+      ?.trim()
+      .toLowerCase() === "application/x-www-form-urlencoded"
+  );
 }
 
 async function boundedPostRequest(request: Request): Promise<Request | null> {
@@ -598,11 +611,18 @@ export async function GET(request: Request): Promise<Response> {
   if (url.search.length > MAX_GRAPHQL_REQUEST_BYTES) {
     return graphqlErrorResponse(request, 413, "GraphQL request is too large.");
   }
-  if (!hasValidGetVariables(url.searchParams)) {
+  if (!hasValidSerializedObject(url.searchParams, "variables")) {
     return graphqlErrorResponse(
       request,
       400,
       "GraphQL variables must be a JSON object or null.",
+    );
+  }
+  if (!hasValidSerializedObject(url.searchParams, "extensions")) {
+    return graphqlErrorResponse(
+      request,
+      400,
+      "GraphQL extensions must be a JSON object or null.",
     );
   }
   // In production GraphiQL is off; GET still serves GraphQL-over-HTTP queries.
@@ -616,6 +636,23 @@ export async function POST(request: Request): Promise<Response> {
   const boundedRequest = await boundedPostRequest(request);
   if (!boundedRequest) {
     return graphqlErrorResponse(request, 413, "GraphQL request is too large.");
+  }
+  if (isFormEncodedRequest(boundedRequest)) {
+    const searchParams = new URLSearchParams(await boundedRequest.clone().text());
+    if (!hasValidSerializedObject(searchParams, "variables")) {
+      return graphqlErrorResponse(
+        request,
+        400,
+        "GraphQL variables must be a JSON object or null.",
+      );
+    }
+    if (!hasValidSerializedObject(searchParams, "extensions")) {
+      return graphqlErrorResponse(
+        request,
+        400,
+        "GraphQL extensions must be a JSON object or null.",
+      );
+    }
   }
   return handle(boundedRequest);
 }

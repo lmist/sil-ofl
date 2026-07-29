@@ -389,6 +389,28 @@ describe("GraphQL HTTP policy", () => {
     }
   });
 
+  it("accepts omitted, empty, null, and object GET extensions", async () => {
+    for (const extensions of [
+      undefined,
+      "",
+      "null",
+      JSON.stringify({ client: "catalog" }),
+    ]) {
+      const params = new URLSearchParams({
+        query: "{ health { ok } }",
+      });
+      if (extensions !== undefined) params.set("extensions", extensions);
+
+      const response = await GET(request(`${endpoint}?${params}`));
+      const result = (await response.json()) as {
+        data?: { health?: { ok?: boolean } };
+      };
+
+      assert.equal(response.status, 200, extensions);
+      assert.equal(result.data?.health?.ok, true, extensions);
+    }
+  });
+
   it("rejects malformed and non-object GET variables before database work", async () => {
     const databaseUrl = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
@@ -417,6 +439,47 @@ describe("GraphQL HTTP policy", () => {
           errors: [
             {
               message: "GraphQL variables must be a JSON object or null.",
+            },
+          ],
+        });
+      }
+    } finally {
+      if (databaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = databaseUrl;
+      }
+    }
+  });
+
+  it("rejects malformed and non-object GET extensions before database work", async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+
+    try {
+      const invalidExtensions = [
+        '{"persistedQuery":',
+        "[]",
+        JSON.stringify("extension"),
+        "1",
+        "true",
+      ];
+      for (const extensions of invalidExtensions) {
+        const params = new URLSearchParams({
+          query: '{ font(id: "1") { id } }',
+          extensions,
+        });
+        const response = await GET(request(`${endpoint}?${params}`));
+        const result = (await response.json()) as {
+          errors?: Array<{ message?: string; extensions?: unknown }>;
+        };
+
+        assert.equal(response.status, 400, extensions);
+        assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+        assert.deepEqual(result, {
+          errors: [
+            {
+              message: "GraphQL extensions must be a JSON object or null.",
             },
           ],
         });
@@ -469,6 +532,143 @@ describe("GraphQL HTTP policy", () => {
 
     assert.equal(result.data?.health?.ok, true);
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  });
+
+  it("rejects malformed and non-object form POST variables before database work", async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+
+    try {
+      const invalidVariables = [
+        '{"id":',
+        "[]",
+        JSON.stringify("1"),
+        "1",
+        "true",
+      ];
+      for (const variables of invalidVariables) {
+        const response = await POST(
+          request(endpoint, {
+            method: "POST",
+            headers: {
+              Accept: "application/graphql-response+json",
+              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            },
+            body: new URLSearchParams({
+              query: 'query Font($id: ID! = "1") { font(id: $id) { id } }',
+              variables,
+            }),
+          }),
+        );
+        const result = (await response.json()) as {
+          errors?: Array<{ message?: string; extensions?: unknown }>;
+        };
+
+        assert.equal(response.status, 400, variables);
+        assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+        assert.deepEqual(result, {
+          errors: [
+            {
+              message: "GraphQL variables must be a JSON object or null.",
+            },
+          ],
+        });
+      }
+    } finally {
+      if (databaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = databaseUrl;
+      }
+    }
+  });
+
+  it("rejects malformed and non-object form POST extensions before database work", async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+
+    try {
+      const invalidExtensions = [
+        '{"persistedQuery":',
+        "[]",
+        JSON.stringify("extension"),
+        "1",
+        "true",
+      ];
+      for (const extensions of invalidExtensions) {
+        const response = await POST(
+          request(endpoint, {
+            method: "POST",
+            headers: {
+              Accept: "application/graphql-response+json",
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              query: '{ font(id: "1") { id } }',
+              extensions,
+            }),
+          }),
+        );
+        const result = (await response.json()) as {
+          errors?: Array<{ message?: string; extensions?: unknown }>;
+        };
+
+        assert.equal(response.status, 400, extensions);
+        assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+        assert.deepEqual(result, {
+          errors: [
+            {
+              message: "GraphQL extensions must be a JSON object or null.",
+            },
+          ],
+        });
+      }
+    } finally {
+      if (databaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = databaseUrl;
+      }
+    }
+  });
+
+  it("accepts omitted, empty, null, and object form POST parameters", async () => {
+    const serializedParameters: Array<Record<string, string>> = [
+      {},
+      { variables: "", extensions: "" },
+      { variables: "null", extensions: "null" },
+      {
+        variables: JSON.stringify({ unused: 1 }),
+        extensions: JSON.stringify({ client: "catalog" }),
+      },
+    ];
+
+    for (const parameters of serializedParameters) {
+      const response = await POST(
+        request(endpoint, {
+          method: "POST",
+          headers: {
+            Accept: "application/graphql-response+json",
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            query: "{ health { ok } }",
+            ...parameters,
+          }),
+        }),
+      );
+      const result = (await response.json()) as {
+        data?: { health?: { ok?: boolean } };
+      };
+
+      assert.equal(response.status, 200, JSON.stringify(parameters));
+      assert.equal(
+        result.data?.health?.ok,
+        true,
+        JSON.stringify(parameters),
+      );
+      assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+    }
   });
 
   it("rejects oversized POST bodies before GraphQL execution", async () => {
