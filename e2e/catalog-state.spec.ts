@@ -1,6 +1,21 @@
 import { test, expect, PAGE1_CURSOR } from "./fixtures";
+import { encodeFontCursor } from "../src/graphql/schema/cursor";
 
 const ROW = "[data-font-row]";
+const OPAQUE_DEEP_CURSOR = encodeFontCursor({
+  v: 2,
+  rep: 100,
+  stars: 6_000,
+  family: "Before",
+  id: 999,
+});
+const HISTORY_CURSOR = encodeFontCursor({
+  v: 2,
+  rep: 0,
+  stars: 0,
+  family: "Before",
+  id: 1,
+});
 
 async function openCatalog(
   page: import("@playwright/test").Page,
@@ -357,7 +372,7 @@ test.describe("catalog state invariants", () => {
     page,
     mockGraphql,
   }) => {
-    const opaqueCursor = "opaque-deep-cursor";
+    const opaqueCursor = OPAQUE_DEEP_CURSOR;
     await mockGraphql();
     await page.goto(`/?after=${encodeURIComponent(opaqueCursor)}`);
     await expect(page.locator(`${ROW} [data-font-row-name]`).first()).toContainText(
@@ -403,7 +418,7 @@ test.describe("catalog state invariants", () => {
       q: "JetBrains",
       format: "ttf",
       owner: "JetBrains",
-      after: PAGE1_CURSOR,
+      after: HISTORY_CURSOR,
       sort: "STARS_ASC",
       font: "201",
     });
@@ -428,7 +443,9 @@ test.describe("catalog state invariants", () => {
     await expect(page.getByLabel("Sort")).toHaveValue("STARS_ASC");
     await expect(page.getByText("Page unknown", { exact: true })).toBeVisible();
     await expect(
-      page.locator('[data-dense-font-table] [data-selected="true"]'),
+      page.locator(
+        '[data-dense-font-table] button[data-selected="true"]',
+      ),
     ).toContainText("JetBrains Mono");
     await expect(page.locator("[data-font-specimen]")).toContainText(
       "JetBrains Mono",
@@ -450,7 +467,9 @@ test.describe("catalog state invariants", () => {
     await expect(page.getByLabel("Sort")).toHaveValue("REPUTATION_DESC");
     await expect(page.getByText("Page 1", { exact: true })).toBeVisible();
     await expect(
-      page.locator('[data-dense-font-table] [data-selected="true"]'),
+      page.locator(
+        '[data-dense-font-table] button[data-selected="true"]',
+      ),
     ).toHaveCount(0);
     await expect(page.locator("[data-font-specimen]")).toContainText(
       "Select a face",

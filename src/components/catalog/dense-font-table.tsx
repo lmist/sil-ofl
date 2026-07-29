@@ -68,6 +68,7 @@ export function DenseFontTable({ className }: { className?: string }) {
         <table
           className="w-full min-w-[28rem] table-fixed border-collapse"
           data-dense-font-table
+          data-placeholder={t.isPlaceholderData ? "true" : "false"}
           aria-label="Font catalog dense"
         >
           <colgroup>

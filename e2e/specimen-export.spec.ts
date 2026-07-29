@@ -348,10 +348,12 @@ test.describe("specimen and export regressions", () => {
       )
       .toBe(1);
 
-    const search = page.getByRole("searchbox", { name: "Search fonts" });
-    await search.fill("no-font-can-match-this-query");
+    const clear = page
+      .getByRole("navigation", { name: "Catalog pagination" })
+      .getByRole("button", { name: "Clear filters" });
+    await clear.click();
     await expect(copyCdn).toHaveCount(0);
-    await expect(search).toBeFocused();
+    await expect(clear).toBeFocused();
 
     await page.evaluate(() => {
       window.__deferredClipboardHarness.settle(0, "reject");
@@ -364,7 +366,7 @@ test.describe("specimen and export regressions", () => {
         ),
       )
       .toBe(1);
-    await expect(search).toBeFocused();
+    await expect(clear).toBeFocused();
     await expect
       .poll(() => page.evaluate(() => document.activeElement?.tagName))
       .not.toBe("BODY");
