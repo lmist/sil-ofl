@@ -2,6 +2,7 @@ import { assign, setup } from "xstate";
 import type { QueryClient } from "@tanstack/react-query";
 import type { FontNode } from "@/graphql/documents";
 import {
+  resolveFontFamily,
   resolveFontStyle,
   resolveFontWeight,
   type ResolvedFontStyle,
@@ -11,6 +12,7 @@ import {
   type FetchFontInput,
 } from "./actors/fetch-fonts";
 import {
+  clearRegisteredFontFace,
   loadFontFaceLogic,
   type LoadFontFaceInput,
   type LoadFontFaceOutput,
@@ -80,19 +82,6 @@ export const defaultSpecimenContext: SpecimenContext = {
 const FONT_DETAILS_ERROR = "Font details are unavailable.";
 const FONT_FACE_ERROR = "Font face is unavailable.";
 
-function familyFromMeta(input: {
-  family?: string | null;
-  fileName?: string | null;
-  fontId: number;
-}): string {
-  if (input.family && input.family.trim()) return input.family.trim();
-  if (input.fileName) {
-    const base = input.fileName.replace(/\.[^.]+$/, "");
-    if (base) return base;
-  }
-  return `ofl-specimen-${input.fontId}`;
-}
-
 export const specimenMachine = setup({
   types: {
     context: {} as SpecimenContext,
@@ -106,6 +95,11 @@ export const specimenMachine = setup({
   guards: {
     hasFacePayload: ({ context }) =>
       Boolean(context.cdnUrl && context.family),
+  },
+  actions: {
+    clearRegisteredFace: () => {
+      clearRegisteredFontFace();
+    },
   },
 }).createMachine({
   id: "specimen",
@@ -132,10 +126,9 @@ export const specimenMachine = setup({
             fileName: event.fileName ?? null,
             weight: resolveFontWeight(event.weight),
             style: resolveFontStyle(event.style),
-            family: familyFromMeta({
-              family: event.family,
+            family: resolveFontFamily({
+              familyGuess: event.family,
               fileName: event.fileName,
-              fontId: event.fontId,
             }),
             error: null,
             sourceUrl: null,
@@ -158,7 +151,9 @@ export const specimenMachine = setup({
             font: null,
           })),
         },
-        CLEAR: {},
+        CLEAR: {
+          actions: "clearRegisteredFace",
+        },
       },
     },
 
@@ -185,10 +180,9 @@ export const specimenMachine = setup({
                 fileName: font.fileName,
                 weight: resolveFontWeight(font.weightGuess),
                 style: resolveFontStyle(font.styleGuess),
-                family: familyFromMeta({
-                  family: font.familyGuess,
+                family: resolveFontFamily({
+                  familyGuess: font.familyGuess,
                   fileName: font.fileName,
-                  fontId: font.fontFileId,
                 }),
                 error: null,
               };
@@ -219,10 +213,9 @@ export const specimenMachine = setup({
             fileName: event.fileName ?? null,
             weight: resolveFontWeight(event.weight),
             style: resolveFontStyle(event.style),
-            family: familyFromMeta({
-              family: event.family,
+            family: resolveFontFamily({
+              familyGuess: event.family,
               fileName: event.fileName,
-              fontId: event.fontId,
             }),
             error: null,
             sourceUrl: null,
@@ -248,10 +241,13 @@ export const specimenMachine = setup({
         },
         CLEAR: {
           target: "empty",
-          actions: assign(({ context }) => ({
-            ...defaultSpecimenContext,
-            queryClient: context.queryClient,
-          })),
+          actions: [
+            "clearRegisteredFace",
+            assign(({ context }) => ({
+              ...defaultSpecimenContext,
+              queryClient: context.queryClient,
+            })),
+          ],
         },
       },
     },
@@ -295,10 +291,9 @@ export const specimenMachine = setup({
             fileName: event.fileName ?? null,
             weight: resolveFontWeight(event.weight),
             style: resolveFontStyle(event.style),
-            family: familyFromMeta({
-              family: event.family,
+            family: resolveFontFamily({
+              familyGuess: event.family,
               fileName: event.fileName,
-              fontId: event.fontId,
             }),
             error: null,
             sourceUrl: null,
@@ -323,10 +318,13 @@ export const specimenMachine = setup({
         },
         CLEAR: {
           target: "empty",
-          actions: assign(({ context }) => ({
-            ...defaultSpecimenContext,
-            queryClient: context.queryClient,
-          })),
+          actions: [
+            "clearRegisteredFace",
+            assign(({ context }) => ({
+              ...defaultSpecimenContext,
+              queryClient: context.queryClient,
+            })),
+          ],
         },
       },
     },
@@ -343,10 +341,9 @@ export const specimenMachine = setup({
             fileName: event.fileName ?? null,
             weight: resolveFontWeight(event.weight),
             style: resolveFontStyle(event.style),
-            family: familyFromMeta({
-              family: event.family,
+            family: resolveFontFamily({
+              familyGuess: event.family,
               fileName: event.fileName,
-              fontId: event.fontId,
             }),
             error: null,
             sourceUrl: null,
@@ -371,10 +368,13 @@ export const specimenMachine = setup({
         },
         CLEAR: {
           target: "empty",
-          actions: assign(({ context }) => ({
-            ...defaultSpecimenContext,
-            queryClient: context.queryClient,
-          })),
+          actions: [
+            "clearRegisteredFace",
+            assign(({ context }) => ({
+              ...defaultSpecimenContext,
+              queryClient: context.queryClient,
+            })),
+          ],
         },
         RETRY: {
           target: "loadingFace",
@@ -395,10 +395,9 @@ export const specimenMachine = setup({
             fileName: event.fileName ?? null,
             weight: resolveFontWeight(event.weight),
             style: resolveFontStyle(event.style),
-            family: familyFromMeta({
-              family: event.family,
+            family: resolveFontFamily({
+              familyGuess: event.family,
               fileName: event.fileName,
-              fontId: event.fontId,
             }),
             error: null,
             sourceUrl: null,
@@ -423,10 +422,13 @@ export const specimenMachine = setup({
         },
         CLEAR: {
           target: "empty",
-          actions: assign(({ context }) => ({
-            ...defaultSpecimenContext,
-            queryClient: context.queryClient,
-          })),
+          actions: [
+            "clearRegisteredFace",
+            assign(({ context }) => ({
+              ...defaultSpecimenContext,
+              queryClient: context.queryClient,
+            })),
+          ],
         },
         RETRY: [
           {

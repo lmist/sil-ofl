@@ -1,4 +1,8 @@
 import { expect, test } from "./fixtures";
+import {
+  MOCK_FONTS_PAGE1,
+  MOCK_NULL_FAMILY_FONT,
+} from "./fixtures/mock-data";
 
 const FONT_LIST = "[data-font-list]";
 const SPECIMEN_TEXTAREA =
@@ -19,11 +23,66 @@ type DeferredClipboardHarness = {
   settle: (index: number, outcome: DeferredCopyOutcome) => void;
 };
 
+type FontFaceHarness = {
+  constructedFamilies: string[];
+  added: number;
+  deleted: number;
+};
+
 declare global {
   interface Window {
     __clipboardHarness: ClipboardHarness;
     __deferredClipboardHarness: DeferredClipboardHarness;
+    __fontFaceHarness: FontFaceHarness;
   }
+}
+
+async function installFontFaceHarness(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  await page.addInitScript(() => {
+    const harness: FontFaceHarness = {
+      constructedFamilies: [],
+      added: 0,
+      deleted: 0,
+    };
+
+    class HarnessFontFace {
+      family: string;
+
+      constructor(family: string) {
+        this.family = family;
+        harness.constructedFamilies.push(family);
+      }
+
+      load(): Promise<this> {
+        return Promise.resolve(this);
+      }
+    }
+
+    Object.defineProperty(window, "__fontFaceHarness", {
+      configurable: true,
+      value: harness,
+    });
+    Object.defineProperty(window, "FontFace", {
+      configurable: true,
+      value: HarnessFontFace,
+    });
+    Object.defineProperty(document.fonts, "add", {
+      configurable: true,
+      value: () => {
+        harness.added += 1;
+        return document.fonts;
+      },
+    });
+    Object.defineProperty(document.fonts, "delete", {
+      configurable: true,
+      value: () => {
+        harness.deleted += 1;
+        return true;
+      },
+    });
+  });
 }
 
 async function forceLegacyClipboard(
@@ -137,6 +196,143 @@ async function openCatalog(
 }
 
 test.describe("specimen and export regressions", () => {
+  test("missing family metadata has one specimen and export identity", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await installFontFaceHarness(page);
+    await mockGraphql({ fontNodes: [MOCK_NULL_FAMILY_FONT] });
+    await page.goto("/");
+
+    const row = page.locator("[data-font-row]").first();
+    await expect(row).toBeVisible();
+    await row.click();
+
+    await expect(page.locator("[data-font-specimen]")).toContainText(
+      "Unknown Regular",
+    );
+    await expect(page.locator("[data-font-use-panel]")).toContainText(
+      "Unknown Regular",
+    );
+    await expect(page.locator("[data-font-use-panel] code")).toContainText(
+      "font-family: 'Unknown Regular'",
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const families = window.__fontFaceHarness.constructedFamilies;
+          return (
+            families.length > 0 &&
+            families.every((family) => family === "Unknown Regular")
+          );
+        }),
+      )
+      .toBe(true);
+    await expect(row).not.toContainText("Unknown-Regular.ttf");
+  });
+
+  test("font registrations replace the previous face and clear on reset", async ({
+    page,
+    mockGraphql,
+  }) => {
+    const sameFamilyFonts = [
+      MOCK_FONTS_PAGE1[0]!,
+      {
+        ...MOCK_FONTS_PAGE1[1]!,
+        familyGuess: MOCK_FONTS_PAGE1[0]!.familyGuess,
+      },
+    ];
+    await installFontFaceHarness(page);
+    await mockGraphql({ fontNodes: sameFamilyFonts });
+    await page.goto("/");
+
+    const rows = page.locator("[data-font-row]");
+    await rows.nth(0).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__fontFaceHarness.added -
+            window.__fontFaceHarness.deleted,
+        ),
+      )
+      .toBe(1);
+    const firstAdded = await page.evaluate(
+      () => window.__fontFaceHarness.added,
+    );
+
+    await rows.nth(1).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (previousAdded) =>
+            window.__fontFaceHarness.added > previousAdded,
+          firstAdded,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__fontFaceHarness.added -
+            window.__fontFaceHarness.deleted,
+        ),
+      )
+      .toBe(1);
+
+    await page
+      .getByRole("navigation", { name: "Catalog pagination" })
+      .getByRole("button", { name: "Clear filters" })
+      .click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__fontFaceHarness.added -
+            window.__fontFaceHarness.deleted,
+        ),
+      )
+      .toBe(0);
+  });
+
+  test("adversarial family names remain one inert browser family", async ({
+    page,
+    mockGraphql,
+  }) => {
+    const family = 'Injected", serif, "Family\nName\\';
+    await installFontFaceHarness(page);
+    await mockGraphql({
+      fontNodes: [{ ...MOCK_FONTS_PAGE1[0]!, familyGuess: family }],
+    });
+    await page.goto("/");
+
+    await page.locator("[data-font-row]").first().click();
+
+    await expect
+      .poll(() =>
+        page.evaluate((expectedFamily) => {
+          const families = window.__fontFaceHarness.constructedFamilies;
+          return (
+            families.length > 0 &&
+            families.every((candidate) => candidate === expectedFamily)
+          );
+        }, family),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        page.locator(SPECIMEN_TEXTAREA).evaluate((element) => ({
+          family: (element as HTMLTextAreaElement).style.fontFamily,
+          valid: (element as HTMLTextAreaElement).style.fontFamily.length > 0,
+        })),
+      )
+      .toEqual({
+        family: '"Injected\\", serif, \\"Family\\a Name\\\\", sans-serif',
+        valid: true,
+      });
+  });
+
   test("selected face applies its resolved weight and style to the specimen", async ({
     page,
     mockGraphql,

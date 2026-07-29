@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useFontCatalogShellContext } from "@/hooks/use-font-catalog-shell";
 import {
+  resolveFontFamily,
   resolveFontStyle,
   resolveFontWeight,
 } from "@/lib/font-face-descriptors";
@@ -63,8 +64,9 @@ export function useFontSpecimen() {
   );
 
   const displayName =
-    shell.selectedEdge?.node.familyGuess ??
-    shell.selectedEdge?.node.fileName ??
+    (shell.selectedEdge
+      ? resolveFontFamily(shell.selectedEdge.node)
+      : null) ??
     shell.specimenFamily ??
     "Select a face";
 

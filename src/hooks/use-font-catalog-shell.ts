@@ -26,6 +26,10 @@ import {
 import type { CatalogEvent } from "@/machines/catalog-machine";
 import type { CatalogUrlSlice } from "@/machines/catalog-url";
 import type { FontFile, FontSort } from "@/types/catalog";
+import {
+  cssFontFamilyValue,
+  resolveFontFamily,
+} from "@/lib/font-face-descriptors";
 
 export const DEFAULT_SPECIMEN_TEXT =
   "The quick brown fox jumps over the lazy dog";
@@ -560,15 +564,17 @@ export function useFontCatalogShell() {
         onFocus,
         onKeyDown,
         "aria-pressed": selected,
-        "aria-label": `Select ${node.familyGuess ?? node.fileName}`,
+        "aria-label": `Select ${resolveFontFamily(node)}`,
         "data-selected": selected ? "true" : "false",
         "data-face-ready": faceActive ? "true" : "false",
         selected,
         faceActive,
         faceStyle: faceActive
-          ? ({ fontFamily: `"${specimen.family}", sans-serif` } as const)
+          ? ({
+              fontFamily: `${cssFontFamilyValue(specimen.family!)}, sans-serif`,
+            } as const)
           : undefined,
-        displayName: node.familyGuess ?? node.fileName,
+        displayName: resolveFontFamily(node),
         meta: `${node.ownerLogin} · ${node.format} · ★${node.stars}`,
         node,
       };
@@ -585,7 +591,9 @@ export function useFontCatalogShell() {
 
   const specimenFaceStyle = useMemo(() => {
     if (!specimen.isReady || !specimen.family) return undefined;
-    return { fontFamily: `"${specimen.family}", sans-serif` } as const;
+    return {
+      fontFamily: `${cssFontFamilyValue(specimen.family)}, sans-serif`,
+    } as const;
   }, [specimen.isReady, specimen.family]);
 
   const stats = statsQuery.data ?? null;

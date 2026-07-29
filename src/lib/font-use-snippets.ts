@@ -1,5 +1,7 @@
 import type { FontFile } from "@/types/catalog";
 import {
+  cssFontFamilyValue,
+  resolveFontFamily,
   resolveFontStyle,
   resolveFontWeight,
 } from "@/lib/font-face-descriptors";
@@ -24,15 +26,7 @@ export function cssFormatHint(format: string): string {
 
 /** Safe CSS font-family name (quoted). */
 export function familyName(font: Pick<FontFile, "familyGuess" | "fileName">): string {
-  const guessed = font.familyGuess?.trim();
-  if (guessed) return guessed;
-
-  return (
-    font.fileName
-      .replace(/\.(ttf|otf|woff2?|ttc)$/i, "")
-      .replace(/[-_]/g, " ")
-      .trim() || "CustomFont"
-  );
+  return resolveFontFamily(font);
 }
 
 function cssStringContents(value: string): string {
@@ -73,10 +67,6 @@ function htmlText(value: string): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
-}
-
-export function cssFontFamilyValue(name: string): string {
-  return `'${cssStringContents(name)}'`;
 }
 
 export type FontUseSnippets = {

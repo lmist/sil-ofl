@@ -18,6 +18,19 @@ export type LoadFontFaceOutput = {
   sourceUrl: string;
 };
 
+let registeredFontFace: FontFace | null = null;
+
+export function clearRegisteredFontFace(): void {
+  if (
+    registeredFontFace &&
+    typeof document !== "undefined" &&
+    document.fonts
+  ) {
+    document.fonts.delete(registeredFontFace);
+  }
+  registeredFontFace = null;
+}
+
 function formatHint(format: string | null | undefined): string | undefined {
   if (!format) return undefined;
   const f = format.toLowerCase();
@@ -80,7 +93,14 @@ export async function loadFontFace(
           );
         }),
       ]);
+      if (signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      if (registeredFontFace) {
+        document.fonts.delete(registeredFontFace);
+      }
       document.fonts.add(loaded);
+      registeredFontFace = loaded;
       return { family: input.family, sourceUrl: url };
     } catch (err) {
       lastError = err;

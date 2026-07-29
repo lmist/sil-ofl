@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { loadFontFace } from "./actors/load-font-face";
+import {
+  clearRegisteredFontFace,
+  loadFontFace,
+} from "./actors/load-font-face";
 
 function restoreGlobal(
   name: "document" | "FontFace",
@@ -61,6 +64,69 @@ describe("loadFontFace", () => {
       );
       assert.equal(constructed, 0);
     } finally {
+      restoreGlobal("document", originalDocument);
+      restoreGlobal("FontFace", originalFontFace);
+    }
+  });
+
+  it("replaces and clears the registered face without accumulation", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "document",
+    );
+    const originalFontFace = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "FontFace",
+    );
+    const added: FontFace[] = [];
+    const deleted: FontFace[] = [];
+
+    class FakeFontFace {
+      async load(): Promise<FontFace> {
+        return this as unknown as FontFace;
+      }
+    }
+
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        fonts: {
+          add: (face: FontFace) => {
+            added.push(face);
+          },
+          delete: (face: FontFace) => {
+            deleted.push(face);
+            return true;
+          },
+        },
+      },
+    });
+    Object.defineProperty(globalThis, "FontFace", {
+      configurable: true,
+      value: FakeFontFace,
+    });
+
+    try {
+      await loadFontFace({
+        family: "Shared Family",
+        cdnUrl:
+          "https://cdn.jsdelivr.net/gh/example/fonts@main/first.woff2",
+        format: "woff2",
+      });
+      await loadFontFace({
+        family: "Shared Family",
+        cdnUrl:
+          "https://cdn.jsdelivr.net/gh/example/fonts@main/second.woff2",
+        format: "woff2",
+      });
+
+      assert.equal(added.length, 2);
+      assert.deepEqual(deleted, [added[0]]);
+
+      clearRegisteredFontFace();
+      assert.deepEqual(deleted, [added[0], added[1]]);
+    } finally {
+      clearRegisteredFontFace();
       restoreGlobal("document", originalDocument);
       restoreGlobal("FontFace", originalFontFace);
     }
