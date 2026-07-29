@@ -101,6 +101,7 @@ status for every defect.
 | `silofl-pzs.40` | opaque deep cursors receive invented page numbers | later-page cursor without local history | truthful unknown-position labeling |
 | `silofl-pzs.41` | database bigint IDs overflow GraphQL Int output | IDs above signed Int32 | explicit positive-safe ID scalar contract |
 | `silofl-pzs.42` | malformed GraphQL GET variables receive an internal-error status | malformed and non-object `variables` parameters | sanitized HTTP 400 before resolver work |
+| `silofl-pzs.43` | specimen retry clears failure before recovery and is not genuinely tested | fail-once face actor on one machine | same-actor retry with error retained until success |
 
 ## Final verification
 
