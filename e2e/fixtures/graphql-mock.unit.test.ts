@@ -33,6 +33,8 @@ type FontConnection = {
   }[];
 };
 
+type DecodedFontCursor = NonNullable<ReturnType<typeof decodeFontCursor>>;
+
 function fonts(
   variables: NonNullable<GraphqlBody["variables"]>,
   options?: NonNullable<Parameters<typeof resolveGraphqlMock>[1]>,
@@ -43,6 +45,15 @@ function fonts(
   }, options);
   assert.ok("data" in payload);
   return (payload as MockGraphqlPayload<{ fonts: FontConnection }>).data.fonts;
+}
+
+function cursorAt(
+  keys: Partial<Omit<DecodedFontCursor, "v">> &
+    Pick<DecodedFontCursor, "id">,
+): string {
+  const seed = decodeFontCursor(fonts({ first: 1 }).edges[0]!.cursor);
+  assert.ok(seed);
+  return encodeFontCursor({ ...seed, ...keys });
 }
 
 async function createGetAdapter() {
@@ -160,6 +171,57 @@ describe("GraphQL Playwright mock", () => {
     );
   });
 
+  it("exposes only OFL 1.0 and 1.1 rows through public mock views", () => {
+    const accepted = {
+      ...ALL_MOCK_FONTS[0]!,
+      id: "901",
+      fontFileId: 901,
+      repoId: 901,
+      ownerLogin: "accepted",
+      fullName: "accepted/fonts",
+      repoName: "fonts",
+      licenseSpdx: "OFL-1.0",
+    };
+    const excluded = {
+      ...ALL_MOCK_FONTS[1]!,
+      id: "902",
+      fontFileId: 902,
+      repoId: 902,
+      ownerLogin: "excluded",
+      fullName: "excluded/fonts",
+      repoName: "fonts",
+      licenseSpdx: "MIT",
+    };
+    const fontNodes = [accepted, excluded];
+
+    const connection = fonts({ first: 100 }, { fontNodes });
+    assert.deepEqual(
+      connection.edges.map(({ node }) => node.fontFileId),
+      [901],
+    );
+
+    assert.deepEqual(
+      resolveGraphqlMock(
+        {
+          operationName: "Font",
+          variables: { id: excluded.id },
+        },
+        { fontNodes },
+      ),
+      { data: { font: null } },
+    );
+    assert.deepEqual(
+      resolveGraphqlMock(
+        {
+          operationName: "Repo",
+          variables: { owner: "excluded", name: "fonts" },
+        },
+        { fontNodes },
+      ),
+      { data: { repo: null } },
+    );
+  });
+
   it("computes totalCount before applying the page size", () => {
     const connection = fonts({
       filter: { q: "fonts/" },
@@ -196,16 +258,91 @@ describe("GraphQL Playwright mock", () => {
     assert.equal(secondFixturePage.pageInfo.hasNextPage, false);
   });
 
-  it("returns a deterministic GraphQL error for malformed or unknown cursors", () => {
-    const unknownCursor = encodeFontCursor({
-      v: 1,
-      rep: 0,
-      stars: 0,
-      family: "Missing",
-      id: 999_999,
-    });
+  it("rejects first values outside the production 1 through 100 contract", () => {
+    for (const first of [0, 101, 1.5]) {
+      const payload = resolveGraphqlMock({
+        operationName: "Fonts",
+        variables: { first },
+      });
+      assert.deepEqual(
+        payload,
+        {
+          errors: [
+            { message: "first must be an integer from 1 through 100" },
+          ],
+        },
+        String(first),
+      );
+    }
+  });
 
-    for (const after of ["not-a-cursor", unknownCursor]) {
+  it("applies structurally valid absent-ID cursors as keyset tuples", () => {
+    const fontNodes = [...ALL_MOCK_FONTS, MOCK_NULL_FAMILY_FONT];
+    const cases = [
+      {
+        sort: "REPUTATION_DESC",
+        cursor: cursorAt({ rep: 87, id: 999_991 }),
+        expected: [103, 201, 202, 203, 301],
+      },
+      {
+        sort: "REPUTATION_ASC",
+        cursor: cursorAt({ rep: 87, id: 999_992 }),
+        expected: [102, 101],
+      },
+      {
+        sort: "STARS_DESC",
+        cursor: cursorAt({ stars: 1_000, id: 999_993 }),
+        expected: [201, 202, 203, 301],
+      },
+      {
+        sort: "STARS_ASC",
+        cursor: cursorAt({ stars: 1_000, id: 999_994 }),
+        expected: [103, 102, 101],
+      },
+      {
+        sort: "FAMILY_ASC",
+        cursor: cursorAt({ family: "Inter", id: 100 }),
+        expected: [101, 201, 202, 203, 102, 301],
+      },
+      {
+        sort: "FAMILY_DESC",
+        cursor: cursorAt({ family: "Inter", id: 104 }),
+        expected: [101, 103, 301],
+      },
+      {
+        sort: "ID_ASC",
+        cursor: cursorAt({ id: 150 }),
+        expected: [201, 202, 203, 301],
+      },
+      {
+        sort: "ID_DESC",
+        cursor: cursorAt({ id: 150 }),
+        expected: [103, 102, 101],
+      },
+    ] as const;
+
+    for (const { sort, cursor, expected } of cases) {
+      const connection = fonts(
+        { sort, after: cursor, first: 100 },
+        { fontNodes },
+      );
+      assert.deepEqual(
+        connection.edges.map(({ node }) => node.fontFileId),
+        expected,
+        sort,
+      );
+    }
+  });
+
+  it("returns a deterministic GraphQL error for malformed cursor payloads", () => {
+    const seed = decodeFontCursor(fonts({ first: 1 }).edges[0]!.cursor);
+    assert.ok(seed);
+    const invalidPayload = Buffer.from(
+      JSON.stringify({ ...seed, id: "999999" }),
+      "utf8",
+    ).toString("base64url");
+
+    for (const after of ["not-a-cursor", invalidPayload]) {
       const payload = resolveGraphqlMock({
         operationName: "Fonts",
         variables: { after },
@@ -266,6 +403,45 @@ describe("GraphQL Playwright mock", () => {
     }
   });
 
+  it("applies absent-ID cursors within the null-family keyset", () => {
+    const secondNullFamily = {
+      ...MOCK_NULL_FAMILY_FONT,
+      id: "303",
+      fontFileId: 303,
+      repoId: 303,
+    };
+    const fontNodes = [
+      ...ALL_MOCK_FONTS,
+      MOCK_NULL_FAMILY_FONT,
+      secondNullFamily,
+    ];
+    const expected: Record<string, number[]> = {
+      FAMILY_ASC: [303],
+      FAMILY_DESC: [301],
+    };
+
+    for (const [sort, ids] of Object.entries(expected)) {
+      const ordered = fonts({ sort, first: 100 }, { fontNodes });
+      const nullEdge = ordered.edges.find(
+        ({ node }) => node.familyGuess === null,
+      );
+      assert.ok(nullEdge);
+      const decoded = decodeFontCursor(nullEdge.cursor);
+      assert.ok(decoded);
+      const after = encodeFontCursor({ ...decoded, id: 302 });
+
+      const connection = fonts(
+        { sort, first: 100, after },
+        { fontNodes },
+      );
+      assert.deepEqual(
+        connection.edges.map(({ node }) => node.fontFileId),
+        ids,
+        sort,
+      );
+    }
+  });
+
   it("uses deterministic production-shaped cursors for edges and pagination", () => {
     const firstPage = fonts({
       filter: { q: "fonts/" },
@@ -275,13 +451,22 @@ describe("GraphQL Playwright mock", () => {
     const endCursor = firstPage.pageInfo.endCursor;
     assert.equal(endCursor, firstPage.edges.at(-1)?.cursor);
     assert.ok(endCursor);
-    assert.deepEqual(decodeFontCursor(endCursor), {
-      v: 1,
-      rep: 99,
-      stars: 5000,
-      family: "Inter",
-      id: 101,
-    });
+    const decoded = decodeFontCursor(endCursor);
+    assert.ok(decoded);
+    assert.deepEqual(
+      {
+        rep: decoded.rep,
+        stars: decoded.stars,
+        family: decoded.family,
+        id: decoded.id,
+      },
+      {
+        rep: 99,
+        stars: 5000,
+        family: "Inter",
+        id: 101,
+      },
+    );
 
     const repeated = fonts({
       filter: { q: "fonts/" },

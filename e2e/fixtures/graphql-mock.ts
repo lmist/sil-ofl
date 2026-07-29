@@ -59,15 +59,38 @@ type FontConnection = {
   edges: { cursor: string; node: MockFontNode }[];
 };
 
-function edge(node: MockFontNode) {
-  return {
-    cursor: encodeFontCursor({
+function encodeMockFontCursor(node: MockFontNode): string {
+  const candidates = [
+    {
+      v: 2,
+      rep: node.reputation,
+      stars: node.stars,
+      family: node.familyGuess,
+      id: node.fontFileId,
+    },
+    {
       v: 1,
       rep: node.reputation,
       stars: node.stars,
       family: node.familyGuess ?? "",
       id: node.fontFileId,
-    }),
+    },
+  ];
+
+  for (const candidate of candidates) {
+    const raw = Buffer.from(JSON.stringify(candidate), "utf8").toString(
+      "base64url",
+    );
+    const decoded = decodeFontCursor(raw);
+    if (decoded) return encodeFontCursor(decoded);
+  }
+
+  throw new Error("Font cursor codec rejected the mock sort keys");
+}
+
+function edge(node: MockFontNode) {
+  return {
+    cursor: encodeMockFontCursor(node),
     node,
   };
 }
@@ -83,12 +106,16 @@ function matchesQuery(node: MockFontNode, q: string): boolean {
   );
 }
 
+function isPublicMockFont(node: MockFontNode): boolean {
+  return node.licenseSpdx === "OFL-1.0" || node.licenseSpdx === "OFL-1.1";
+}
+
 function filterFonts(
   nodes: readonly MockFontNode[],
   filter: FontFilter | null,
 ): readonly MockFontNode[] {
-  if (!filter) return nodes;
-  let out = nodes;
+  let out = nodes.filter(isPublicMockFont);
+  if (!filter) return out;
   const q = filter.q?.trim();
   const owner = filter.owner?.trim();
   if (q) {
@@ -121,9 +148,16 @@ function compareString(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+type FontSortKey = {
+  reputation: number;
+  stars: number;
+  familyGuess: string | null;
+  fontFileId: number;
+};
+
 function compareFamilies(
-  a: MockFontNode,
-  b: MockFontNode,
+  a: FontSortKey,
+  b: FontSortKey,
   direction: "asc" | "desc",
 ): number {
   if (a.familyGuess == null && b.familyGuess == null) {
@@ -140,9 +174,9 @@ function compareFamilies(
         compareNumber(b.fontFileId, a.fontFileId);
 }
 
-function compareFonts(
-  a: MockFontNode,
-  b: MockFontNode,
+function compareFontKeys(
+  a: FontSortKey,
+  b: FontSortKey,
   sort: string,
 ): number {
   switch (sort) {
@@ -182,11 +216,36 @@ function pageSize(
   first: number | null | undefined,
   override: number | undefined,
 ): number {
-  const requested =
-    typeof first === "number" && Number.isFinite(first) ? Math.trunc(first) : 50;
-  const bounded = Math.min(Math.max(requested, 1), 100);
-  if (override == null || !Number.isFinite(override)) return bounded;
-  return Math.min(bounded, Math.min(Math.max(Math.trunc(override), 1), 100));
+  const requested = first ?? 50;
+  if (override == null || !Number.isFinite(override)) return requested;
+  return Math.min(
+    requested,
+    Math.min(Math.max(Math.trunc(override), 1), 100),
+  );
+}
+
+function hasValidPageSize(first: number | null | undefined): boolean {
+  return (
+    first == null ||
+    (Number.isInteger(first) && first >= 1 && first <= 100)
+  );
+}
+
+function cursorFamilyKey(
+  cursor: NonNullable<ReturnType<typeof decodeFontCursor>>,
+  nodes: readonly MockFontNode[],
+): string | null {
+  if (
+    Number(cursor.v) === 1 &&
+    cursor.family === "" &&
+    nodes.some((node) => node.familyGuess === null) &&
+    !nodes.some((node) => node.familyGuess === "")
+  ) {
+    // The legacy codec collapsed null to "". Recover it only when the fixture
+    // data makes that interpretation unambiguous; v2 preserves null directly.
+    return null;
+  }
+  return cursor.family;
 }
 
 function fontsConnection(
@@ -198,17 +257,26 @@ function fontsConnection(
   const after = variables?.after ?? null;
   const sort = variables?.sort ?? "REPUTATION_DESC";
   const matched = [...filterFonts(fontNodes, filter)].sort((a, b) =>
-    compareFonts(a, b, sort),
+    compareFontKeys(a, b, sort),
   );
   const first = pageSize(variables?.first, options.pageSizeOverride);
   const cursor = after ? decodeFontCursor(after) : null;
-  const cursorIndex = cursor
-    ? matched.findIndex((node) => node.fontFileId === cursor.id)
-    : -1;
-  if (after && (!cursor || cursorIndex < 0)) {
+  if (after && !cursor) {
     return null;
   }
-  const remaining = matched.slice(cursorIndex + 1);
+  const cursorKey: FontSortKey | null = cursor
+    ? {
+        reputation: cursor.rep,
+        stars: cursor.stars,
+        familyGuess: cursorFamilyKey(cursor, matched),
+        fontFileId: cursor.id,
+      }
+    : null;
+  const remaining = cursorKey
+    ? matched.filter(
+        (node) => compareFontKeys(node, cursorKey, sort) > 0,
+      )
+    : matched;
   const page = remaining.slice(0, first);
   const edges = page.map(edge);
   const endCursor = edges.at(-1)?.cursor ?? null;
@@ -291,7 +359,9 @@ export function resolveGraphqlMock(
   body: GraphqlBody,
   options: ResolveGraphqlMockOptions = {},
 ): MockGraphqlResponse {
-  const fontNodes = options.fontNodes ?? ALL_MOCK_FONTS;
+  const fontNodes = (options.fontNodes ?? ALL_MOCK_FONTS).filter(
+    isPublicMockFont,
+  );
   const op = detectOperation(body);
   if (op === "Health") {
     return {
@@ -310,6 +380,13 @@ export function resolveGraphqlMock(
   }
 
   if (op === "Fonts") {
+    if (!hasValidPageSize(body.variables?.first)) {
+      return {
+        errors: [
+          { message: "first must be an integer from 1 through 100" },
+        ],
+      };
+    }
     const fonts = fontsConnection(body.variables, options);
     return fonts
       ? { data: { fonts } }
