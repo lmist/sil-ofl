@@ -302,6 +302,10 @@ test.describe("catalog accessibility and responsive layout", () => {
 
     const listItems = list.getByRole("listitem");
     await expect(listItems).toHaveCount(3);
+    await expect(listItems.nth(0)).toHaveAttribute("aria-posinset", "1");
+    await expect(listItems.nth(1)).toHaveAttribute("aria-posinset", "2");
+    await expect(listItems.nth(2)).toHaveAttribute("aria-posinset", "3");
+    await expect(listItems.first()).toHaveAttribute("aria-setsize", "6");
 
     const selectButtons = listItems.getByRole("button", {
       name: /^Select /,
@@ -312,11 +316,14 @@ test.describe("catalog accessibility and responsive layout", () => {
     await selectButtons.first().focus();
     await selectButtons.first().press("Enter");
     await expect(selectButtons.first()).toHaveAttribute("aria-pressed", "true");
+    await expect(selectButtons.first().getByText("Selected")).toBeVisible();
 
     await selectButtons.nth(1).focus();
     await selectButtons.nth(1).press("Space");
     await expect(selectButtons.nth(1)).toHaveAttribute("aria-pressed", "true");
+    await expect(selectButtons.nth(1).getByText("Selected")).toBeVisible();
     await expect(selectButtons.first()).toHaveAttribute("aria-pressed", "false");
+    await expect(selectButtons.first().getByText("Selected")).toHaveCount(0);
 
     const results = await new AxeBuilder({ page })
       .include(FONT_LIST)
@@ -352,9 +359,14 @@ test.describe("catalog accessibility and responsive layout", () => {
 
     const selectButtons = table.getByRole("button", { name: /^Select / });
     await expect(selectButtons).toHaveCount(3);
+    await expect(table.getByRole("rowheader")).toHaveCount(3);
+    await expect(table.getByRole("row").nth(1).getByRole("rowheader")).toHaveCount(
+      1,
+    );
     await selectButtons.first().focus();
     await selectButtons.first().press("Enter");
     await expect(selectButtons.first()).toHaveAttribute("aria-pressed", "true");
+    await expect(selectButtons.first().getByText("Selected")).toBeVisible();
     await selectButtons.nth(1).focus();
     await selectButtons.nth(1).press("Space");
     await expect(selectButtons.nth(1)).toHaveAttribute("aria-pressed", "true");
@@ -592,20 +604,99 @@ test.describe("catalog accessibility and responsive layout", () => {
     await waitForCatalog(page);
 
     const specimen = page.locator("[data-font-specimen]");
-    const error = specimen.getByText(/Specimen error:/);
-    await expect(error).toBeVisible();
+    const status = specimen.locator("[data-specimen-status]");
+    await expect(status).toHaveCount(1);
+    await expect(status).toHaveAttribute("role", "alert");
+    await expect(specimen).toHaveAttribute("aria-busy", "false");
+    await expect(status).toContainText("Specimen error:");
 
-    await error.getByRole("button", { name: "Retry" }).click();
+    await status.getByRole("button", { name: "Retry" }).click();
 
-    await expect(specimen.getByText("Loading specimen face…")).toBeVisible();
-    await expect(error).toBeVisible();
+    await expect(specimen).toHaveAttribute("aria-busy", "true");
+    await expect(status).toContainText("Specimen error:");
+    await expect(status).toContainText("Retrying…");
+    await expect(specimen.locator("[data-specimen-status]")).toHaveCount(1);
     await page.evaluate(() => {
       const harness = window as Window & {
         __resolveRetryingFontFace?: () => void;
       };
       harness.__resolveRetryingFontFace?.();
     });
-    await expect(error).toHaveCount(0);
+    await expect(specimen).toHaveAttribute("aria-busy", "false");
+    await expect(status).toHaveAttribute("role", "status");
+    await expect(status).toHaveText("Specimen face ready.");
+  });
+
+  test("long selected metadata stays inside a 320px viewport", async ({
+    page,
+    mockGraphql,
+  }) => {
+    const longFamily = "FamilyName".repeat(80);
+    const longOwner = "OwnerName".repeat(80);
+    await page.setViewportSize({ width: 320, height: 900 });
+    await mockGraphql({
+      fontNodes: [
+        {
+          ...MOCK_FONTS_PAGE1[0]!,
+          familyGuess: longFamily,
+          ownerLogin: longOwner,
+        },
+      ],
+    });
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    await page.locator(FONT_ROW).first().click();
+    await expect(page.locator("[data-font-use-panel]")).toBeVisible();
+
+    const layout = await page.evaluate(() => {
+      const scrollingElement = document.scrollingElement;
+      return {
+        clientWidth:
+          scrollingElement?.clientWidth ??
+          document.documentElement.clientWidth,
+        scrollWidth:
+          scrollingElement?.scrollWidth ??
+          document.documentElement.scrollWidth,
+      };
+    });
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth);
+  });
+
+  test("copy success and specimen recovery retain full-contrast controls", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async () => undefined,
+        },
+      });
+    });
+    await installFailingFontFace(page);
+    await mockGraphql();
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    await page.locator(FONT_ROW).first().click();
+
+    const retry = page
+      .locator("[data-font-specimen]")
+      .getByRole("button", { name: "Retry" });
+    await retry.hover();
+    await expect(retry).toHaveCSS("opacity", "1");
+    await expect(retry).toHaveCSS("color", "rgb(255, 255, 255)");
+
+    const copy = page.getByRole("button", {
+      name: "Copy CSS @font-face",
+    });
+    await copy.click();
+    await expect(copy).toHaveText("Copied ✓");
+    await copy.hover();
+    await expect(copy).toHaveCSS("opacity", "1");
+    await expect(copy).toHaveCSS("color", "rgb(255, 255, 255)");
   });
 
   test("catalog render recovery has a 24px target", async ({

@@ -21,21 +21,21 @@ export function FontUsePanel({ className }: { className?: string }) {
     <section
       {...panel.rootProps}
       className={cn(
-        "border-b border-border px-[var(--gutter)] py-5",
+        "min-w-0 border-b border-border px-[var(--gutter)] py-5",
         className,
       )}
     >
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-        <div>
+      <div className="mb-3 flex min-w-0 flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <div className="min-w-0 max-w-full">
           <p className="text-[0.75rem] text-muted-foreground">Use this font</p>
-          <p className="text-[0.9375rem] tracking-tight text-foreground">
+          <p className="min-w-0 max-w-full break-words text-[0.9375rem] tracking-tight text-foreground">
             {s.family}
             <span className="ml-2 text-[0.75rem] tabular-nums text-muted-foreground">
               {s.weight} · {s.style}
             </span>
           </p>
         </div>
-        <p className="max-w-md text-[0.75rem] leading-relaxed text-muted-foreground">
+        <p className="min-w-0 max-w-md break-words text-[0.75rem] leading-relaxed text-muted-foreground">
           Copy CSS into your project, or grab the CDN URL. Faces stay on
           jsDelivr / GitHub — nothing is re-hosted here.
         </p>
@@ -45,7 +45,7 @@ export function FontUsePanel({ className }: { className?: string }) {
         <p
           data-external-url-error
           role="alert"
-          className="mb-3 text-[0.75rem] text-muted-foreground"
+          className="mb-3 min-w-0 max-w-full break-words text-[0.75rem] text-muted-foreground"
         >
           {s.policyError} Choose another font.
         </p>
@@ -108,7 +108,7 @@ export function FontUsePanel({ className }: { className?: string }) {
           role={panel.copyError ? "alert" : "status"}
           aria-live={panel.copyError ? "assertive" : "polite"}
           aria-atomic="true"
-          className="mb-3 text-[0.75rem] text-muted-foreground"
+          className="mb-3 min-w-0 max-w-full break-words text-[0.75rem] text-foreground"
         >
           {panel.copyMessage}
         </p>
@@ -116,7 +116,7 @@ export function FontUsePanel({ className }: { className?: string }) {
 
       <pre
         className={cn(
-          "max-h-48 overflow-auto border border-border bg-transparent p-3",
+          "max-h-48 max-w-full overflow-auto border border-border bg-transparent p-3",
           "font-mono text-[0.6875rem] leading-relaxed text-muted-foreground",
           "selection:bg-foreground selection:text-background",
         )}
@@ -146,12 +146,12 @@ function ActionButton({
       {...props}
       className={cn(
         "inline-flex min-h-6 min-w-6 items-center text-left text-foreground underline-offset-4",
-        "transition-opacity duration-[var(--dur-fast)]",
-        "hover:underline hover:opacity-80",
+        "transition-colors duration-[var(--dur-fast)]",
+        "hover:underline",
         "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-ring",
         "disabled:pointer-events-none disabled:opacity-40",
         "motion-reduce:transition-none",
-        copied && "text-primary",
+        copied && "font-medium text-foreground",
         className,
       )}
     >

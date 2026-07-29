@@ -77,6 +77,10 @@ export function useFontList() {
   const specimenText = shell.specimenText;
   const getRowInteractionProps = shell.getRowInteractionProps;
   const edges = shell.edges;
+  const pageOffset =
+    shell.catalog.context.cursorStack.length *
+    shell.catalog.context.pageSize;
+  const setSize = shell.totalCount;
 
   const rows = useMemo(() => {
     return virtualItems.map((vItem) => {
@@ -100,6 +104,8 @@ export function useFontList() {
 
       return {
         key: edge.node.fontFileId,
+        ariaPosInSet: pageOffset + vItem.index + 1,
+        ariaSetSize: setSize,
         wrapperStyle: {
           position: "absolute" as const,
           top: 0,
@@ -133,7 +139,14 @@ export function useFontList() {
         },
       };
     });
-  }, [virtualItems, edges, getRowInteractionProps, specimenText]);
+  }, [
+    virtualItems,
+    edges,
+    getRowInteractionProps,
+    specimenText,
+    pageOffset,
+    setSize,
+  ]);
 
   const emptyHeadline =
     shell.isFetching || !shell.connection

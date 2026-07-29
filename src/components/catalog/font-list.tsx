@@ -96,6 +96,8 @@ export function FontList({ className }: { className?: string }) {
               <div
                 key={row.key}
                 role="listitem"
+                aria-posinset={row.ariaPosInSet}
+                aria-setsize={row.ariaSetSize}
                 style={row.wrapperStyle}
               >
                 <FontRow {...row.rowProps} />

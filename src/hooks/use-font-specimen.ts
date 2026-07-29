@@ -42,8 +42,9 @@ export function useFontSpecimen() {
       ({
         "data-font-specimen": true,
         "aria-label": "Type specimen",
+        "aria-busy": shell.specimenIsLoading,
       }) as const,
-    [],
+    [shell.specimenIsLoading],
   );
 
   const textAreaProps = useMemo(

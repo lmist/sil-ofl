@@ -14,15 +14,15 @@ export function FontSpecimen({ className }: { className?: string }) {
     <section
       {...specimen.rootProps}
       className={cn(
-        "border-b border-border px-[var(--gutter)] py-6",
+        "min-w-0 border-b border-border px-[var(--gutter)] py-6",
         className,
       )}
     >
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
-        <p className="text-[0.8125rem] tracking-tight text-foreground">
+      <div className="mb-3 flex min-w-0 flex-wrap items-baseline justify-between gap-3">
+        <p className="min-w-0 max-w-full break-words text-[0.8125rem] tracking-tight text-foreground">
           {specimen.displayName}
         </p>
-        <p className="text-[0.75rem] tabular-nums text-muted-foreground">
+        <p className="min-w-0 max-w-full break-words text-[0.75rem] tabular-nums text-muted-foreground">
           {specimen.metaLine}
         </p>
       </div>
@@ -30,7 +30,7 @@ export function FontSpecimen({ className }: { className?: string }) {
       <textarea
         {...specimen.textAreaProps}
         className={cn(
-          "w-full resize-y border-0 bg-transparent p-0 text-foreground outline-none",
+          "min-w-0 max-w-full w-full resize-y border-0 bg-transparent p-0 text-foreground outline-none",
           "placeholder:text-muted-foreground",
           "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-ring",
           "motion-reduce:transition-none",
@@ -44,22 +44,34 @@ export function FontSpecimen({ className }: { className?: string }) {
         }}
       />
 
-      {specimen.isLoading ? (
-        <p className="mt-3 text-[0.75rem] text-muted-foreground">
-          Loading specimen face…
-        </p>
-      ) : null}
-
-      {specimen.isError ? (
-        <p className="mt-3 text-[0.75rem] text-muted-foreground">
-          Specimen error: {specimen.error}{" "}
-          <button
-            {...specimen.retryProps}
-            type="button"
-            className="underline underline-offset-4 transition-opacity duration-[var(--dur-fast)] hover:opacity-80 motion-reduce:transition-none"
-          >
-            Retry
-          </button>
+      {specimen.isLoading || specimen.isError || specimen.isReady ? (
+        <p
+          className="mt-3 min-w-0 max-w-full break-words text-[0.75rem] text-muted-foreground"
+          data-specimen-status
+          role={specimen.isError ? "alert" : "status"}
+          aria-live={specimen.isError ? "assertive" : "polite"}
+          aria-atomic="true"
+        >
+          {specimen.isError ? (
+            <>
+              Specimen error: {specimen.error}{" "}
+              {specimen.isLoading ? (
+                "Retrying…"
+              ) : (
+                <button
+                  {...specimen.retryProps}
+                  type="button"
+                  className="text-foreground underline underline-offset-4"
+                >
+                  Retry
+                </button>
+              )}
+            </>
+          ) : specimen.isLoading ? (
+            "Loading specimen face…"
+          ) : (
+            "Specimen face ready."
+          )}
         </p>
       ) : null}
     </section>

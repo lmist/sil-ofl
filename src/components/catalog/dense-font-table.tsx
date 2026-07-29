@@ -141,31 +141,51 @@ export function DenseFontTable({ className }: { className?: string }) {
                       cell.column.columnDef.cell,
                       cell.getContext(),
                     );
+                    const cellClassName = cn(
+                      "overflow-hidden py-2.5 pr-3 align-middle last:pr-0",
+                      cell.column.id === "stars" &&
+                        "tabular-nums text-muted-foreground",
+                      cell.column.id === "format" &&
+                        "text-muted-foreground",
+                      cell.column.id === "owner" &&
+                        "text-muted-foreground",
+                      cell.column.id === "family" &&
+                        "tracking-tight text-foreground",
+                    );
+
+                    if (cell.column.id === "family") {
+                      return (
+                        <th
+                          key={cell.id}
+                          scope="row"
+                          className={cn(cellClassName, "font-normal")}
+                        >
+                          <button
+                            {...rowProps.selectionProps}
+                            className="flex min-h-6 min-w-0 w-full items-center overflow-hidden text-ellipsis whitespace-nowrap text-left underline-offset-4 hover:underline"
+                          >
+                            {rowProps.selected ? (
+                              <span
+                                className="mr-2 shrink-0 font-medium"
+                                data-selection-indicator
+                              >
+                                Selected ·
+                              </span>
+                            ) : null}
+                            <span className="min-w-0 overflow-hidden text-ellipsis">
+                              {content}
+                            </span>
+                          </button>
+                        </th>
+                      );
+                    }
+
                     return (
                       <td
                         key={cell.id}
-                        className={cn(
-                          "overflow-hidden py-2.5 pr-3 align-middle last:pr-0",
-                          cell.column.id === "stars" &&
-                            "tabular-nums text-muted-foreground",
-                          cell.column.id === "format" &&
-                            "text-muted-foreground",
-                          cell.column.id === "owner" &&
-                            "text-muted-foreground",
-                          cell.column.id === "family" &&
-                            "tracking-tight text-foreground",
-                        )}
+                        className={cellClassName}
                       >
-                        {cell.column.id === "family" ? (
-                          <button
-                            {...rowProps.selectionProps}
-                            className="flex min-h-6 min-w-6 w-full items-center overflow-hidden text-ellipsis whitespace-nowrap text-left underline-offset-4 hover:underline"
-                          >
-                            {content}
-                          </button>
-                        ) : (
-                          <span className="block truncate">{content}</span>
-                        )}
+                        <span className="block truncate">{content}</span>
                       </td>
                     );
                   })}
