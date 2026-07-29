@@ -8,6 +8,8 @@ export type LoadFontFaceInput = {
   /** Optional raw GitHub URL fallback */
   rawUrl?: string | null;
   format?: string | null;
+  weight?: number | null;
+  style?: "normal" | "italic" | "oblique" | null;
 };
 
 export type LoadFontFaceOutput = {
@@ -58,6 +60,8 @@ export async function loadFontFace(
         : `url(${JSON.stringify(url)})`;
       const face = new FontFace(input.family, src, {
         display: "swap",
+        weight: String(input.weight ?? 400),
+        style: input.style ?? "normal",
       });
       // FontFace.load() does not take AbortSignal in all browsers; race it.
       const loaded = await Promise.race([

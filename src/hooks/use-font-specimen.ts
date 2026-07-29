@@ -2,6 +2,10 @@
 
 import { useMemo } from "react";
 import { useFontCatalogShellContext } from "@/hooks/use-font-catalog-shell";
+import {
+  resolveFontStyle,
+  resolveFontWeight,
+} from "@/lib/font-face-descriptors";
 
 /**
  * Headless specimen — shared editable sample string + face from specimen machine.
@@ -9,6 +13,28 @@ import { useFontCatalogShellContext } from "@/hooks/use-font-catalog-shell";
  */
 export function useFontSpecimen() {
   const shell = useFontCatalogShellContext();
+  const selectedFace = shell.selectedEdge?.node ?? null;
+
+  const faceStyle = useMemo(
+    () =>
+      ({
+        ...shell.specimenFaceStyle,
+        fontWeight: resolveFontWeight(
+          selectedFace?.weightGuess ?? shell.specimen.weight,
+        ),
+        fontStyle: resolveFontStyle(
+          selectedFace?.styleGuess ?? shell.specimen.style,
+        ),
+        fontSynthesis: "none",
+      }) as const,
+    [
+      shell.specimenFaceStyle,
+      shell.specimen.weight,
+      shell.specimen.style,
+      selectedFace?.weightGuess,
+      selectedFace?.styleGuess,
+    ],
+  );
 
   const rootProps = useMemo(
     () =>
@@ -27,12 +53,12 @@ export function useFontSpecimen() {
         spellCheck: false,
         "aria-label": "Editable specimen text",
         rows: 2,
-        style: shell.specimenFaceStyle,
+        style: faceStyle,
       }) as const,
     [
       shell.specimenText,
       shell.onSpecimenTextChange,
-      shell.specimenFaceStyle,
+      faceStyle,
     ],
   );
 
@@ -60,7 +86,7 @@ export function useFontSpecimen() {
     error: shell.specimenError,
     retryProps: shell.retrySpecimenProps,
     hasSelection: shell.selectedFontId != null,
-    faceStyle: shell.specimenFaceStyle,
+    faceStyle,
   } as const;
 }
 

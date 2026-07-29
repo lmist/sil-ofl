@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import ts from "typescript";
 import {
   buildFontUseSnippets,
   cssFormatHint,
@@ -53,5 +54,51 @@ describe("font-use-snippets", () => {
     assert.match(s.css, /format\('opentype'\)/);
     assert.match(s.html, /<!doctype html>/i);
     assert.equal(s.repoUrl, sample.repoUrl);
+  });
+
+  it("builds a syntactically valid React example for the selected face", () => {
+    const s = buildFontUseSnippets(sample);
+    const result = ts.transpileModule(s.react, {
+      fileName: "font-example.tsx",
+      reportDiagnostics: true,
+      compilerOptions: {
+        jsx: ts.JsxEmit.ReactJSX,
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    });
+    const syntaxErrors = (result.diagnostics ?? [])
+      .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
+      .map((diagnostic) =>
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+      );
+
+    assert.deepEqual(syntaxErrors, []);
+    assert.doesNotMatch(s.react, /^\s*\/\//m);
+    assert.match(s.react, /export function FontExample/);
+    assert.match(s.react, /Apfel Grotezk/);
+    assert.match(s.react, /cdn\.jsdelivr\.net/);
+    assert.match(s.react, /fontWeight: 400/);
+    assert.match(s.react, /fontStyle: "normal"/);
+  });
+
+  it("applies a weighted italic face in every copied usage example", () => {
+    const s = buildFontUseSnippets({
+      ...sample,
+      fileName: "ApfelGrotezk-BoldItalic.otf",
+      weightGuess: 700,
+      styleGuess: "italic",
+    });
+
+    assert.match(
+      s.css,
+      /\.my-text \{\n  font-family: 'Apfel Grotezk', system-ui, sans-serif;\n  font-weight: 700;\n  font-style: italic;\n\}/,
+    );
+    assert.match(
+      s.html,
+      /body \{\n      font-family: 'Apfel Grotezk', system-ui, sans-serif;\n      font-weight: 700;\n      font-style: italic;/,
+    );
+    assert.match(s.react, /fontWeight: 700/);
+    assert.match(s.react, /fontStyle: "italic"/);
   });
 });

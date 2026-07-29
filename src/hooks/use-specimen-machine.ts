@@ -39,6 +39,8 @@ export function useSpecimenMachine(options: UseSpecimenMachineOptions = {}) {
     context: snapshot.context,
     error: snapshot.context.error,
     family: snapshot.context.family,
+    weight: snapshot.context.weight,
+    style: snapshot.context.style,
     matches: snapshot.matches.bind(snapshot),
     isReady: snapshot.matches("ready"),
     isLoading:

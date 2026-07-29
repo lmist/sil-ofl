@@ -42,11 +42,36 @@ export function FontUsePanel({ className }: { className?: string }) {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[0.8125rem]">
-        <ActionButton {...panel.copyCssProps} label="Copy CSS" copied={panel.copied === "css"} />
-        <ActionButton {...panel.copyHtmlProps} label="Copy HTML page" copied={panel.copied === "html"} />
-        <ActionButton {...panel.copyReactProps} label="Copy for React" copied={panel.copied === "react"} />
-        <ActionButton {...panel.copyCdnProps} label="Copy CDN URL" copied={panel.copied === "cdn"} />
-        <ActionButton {...panel.copyRawProps} label="Copy raw URL" copied={panel.copied === "raw"} />
+        <ActionButton
+          {...panel.copyCssProps}
+          label="Copy CSS"
+          copied={panel.copied === "css"}
+          failed={panel.copyError === "css"}
+        />
+        <ActionButton
+          {...panel.copyHtmlProps}
+          label="Copy HTML page"
+          copied={panel.copied === "html"}
+          failed={panel.copyError === "html"}
+        />
+        <ActionButton
+          {...panel.copyReactProps}
+          label="Copy for React"
+          copied={panel.copied === "react"}
+          failed={panel.copyError === "react"}
+        />
+        <ActionButton
+          {...panel.copyCdnProps}
+          label="Copy CDN URL"
+          copied={panel.copied === "cdn"}
+          failed={panel.copyError === "cdn"}
+        />
+        <ActionButton
+          {...panel.copyRawProps}
+          label="Copy raw URL"
+          copied={panel.copied === "raw"}
+          failed={panel.copyError === "raw"}
+        />
 
         {panel.downloadProps ? (
           <a
@@ -67,6 +92,18 @@ export function FontUsePanel({ className }: { className?: string }) {
         ) : null}
       </div>
 
+      {panel.copyMessage ? (
+        <p
+          data-copy-feedback
+          role={panel.copyError ? "alert" : "status"}
+          aria-live={panel.copyError ? "assertive" : "polite"}
+          aria-atomic="true"
+          className="mb-3 text-[0.75rem] text-muted-foreground"
+        >
+          {panel.copyMessage}
+        </p>
+      ) : null}
+
       <pre
         className={cn(
           "max-h-48 overflow-auto border border-border bg-transparent p-3",
@@ -74,6 +111,7 @@ export function FontUsePanel({ className }: { className?: string }) {
           "selection:bg-foreground selection:text-background",
         )}
         tabIndex={0}
+        role="region"
         aria-label="CSS snippet preview"
       >
         <code>{panel.previewCode}</code>
@@ -85,11 +123,13 @@ export function FontUsePanel({ className }: { className?: string }) {
 function ActionButton({
   label,
   copied,
+  failed,
   className,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string;
   copied: boolean;
+  failed: boolean;
 }) {
   return (
     <button
@@ -105,7 +145,7 @@ function ActionButton({
         className,
       )}
     >
-      {copied ? "Copied ✓" : label}
+      {copied ? "Copied ✓" : failed ? `Retry ${label}` : label}
     </button>
   );
 }

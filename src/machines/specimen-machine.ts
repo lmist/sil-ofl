@@ -2,6 +2,11 @@ import { assign, setup } from "xstate";
 import type { QueryClient } from "@tanstack/react-query";
 import type { FontNode } from "@/graphql/documents";
 import {
+  resolveFontStyle,
+  resolveFontWeight,
+  type ResolvedFontStyle,
+} from "@/lib/font-face-descriptors";
+import {
   fetchFontLogic,
   type FetchFontInput,
 } from "./actors/fetch-fonts";
@@ -19,6 +24,8 @@ export type SpecimenContext = {
   /** Registered CSS font-family name */
   family: string | null;
   fileName: string | null;
+  weight: number;
+  style: ResolvedFontStyle;
   error: string | null;
   sourceUrl: string | null;
   /** Optional detail node from GraphQL when only id was known */
@@ -35,6 +42,8 @@ export type SpecimenEvent =
       format?: string | null;
       family?: string | null;
       fileName?: string | null;
+      weight?: number | null;
+      style?: string | null;
     }
   | { type: "LOAD_BY_ID"; fontId: number }
   | { type: "CLEAR" }
@@ -48,6 +57,8 @@ export type SpecimenInput = Partial<
     format: string | null;
     family: string | null;
     fileName: string | null;
+    weight: number | null;
+    style: string | null;
   }
 >;
 
@@ -58,6 +69,8 @@ export const defaultSpecimenContext: SpecimenContext = {
   format: null,
   family: null,
   fileName: null,
+  weight: 400,
+  style: "normal",
   error: null,
   sourceUrl: null,
   font: null,
@@ -97,6 +110,8 @@ export const specimenMachine = setup({
   context: ({ input }) => ({
     ...defaultSpecimenContext,
     ...input,
+    weight: resolveFontWeight(input.weight),
+    style: resolveFontStyle(input.style),
     error: null,
     sourceUrl: null,
     font: null,
@@ -112,6 +127,8 @@ export const specimenMachine = setup({
             rawUrl: event.rawUrl ?? null,
             format: event.format ?? null,
             fileName: event.fileName ?? null,
+            weight: resolveFontWeight(event.weight),
+            style: resolveFontStyle(event.style),
             family: familyFromMeta({
               family: event.family,
               fileName: event.fileName,
@@ -131,6 +148,8 @@ export const specimenMachine = setup({
             format: null,
             family: null,
             fileName: null,
+            weight: defaultSpecimenContext.weight,
+            style: defaultSpecimenContext.style,
             error: null,
             sourceUrl: null,
             font: null,
@@ -161,6 +180,8 @@ export const specimenMachine = setup({
                 rawUrl: font.rawUrl,
                 format: font.format,
                 fileName: font.fileName,
+                weight: resolveFontWeight(font.weightGuess),
+                style: resolveFontStyle(font.styleGuess),
                 family: familyFromMeta({
                   family: font.familyGuess,
                   fileName: font.fileName,
@@ -196,6 +217,8 @@ export const specimenMachine = setup({
             rawUrl: event.rawUrl ?? null,
             format: event.format ?? null,
             fileName: event.fileName ?? null,
+            weight: resolveFontWeight(event.weight),
+            style: resolveFontStyle(event.style),
             family: familyFromMeta({
               family: event.family,
               fileName: event.fileName,
@@ -216,6 +239,8 @@ export const specimenMachine = setup({
             format: null,
             family: null,
             fileName: null,
+            weight: defaultSpecimenContext.weight,
+            style: defaultSpecimenContext.style,
             error: null,
             sourceUrl: null,
             font: null,
@@ -240,6 +265,8 @@ export const specimenMachine = setup({
           cdnUrl: context.cdnUrl!,
           rawUrl: context.rawUrl,
           format: context.format,
+          weight: context.weight,
+          style: context.style,
         }),
         onDone: {
           target: "ready",
@@ -269,6 +296,8 @@ export const specimenMachine = setup({
             rawUrl: event.rawUrl ?? null,
             format: event.format ?? null,
             fileName: event.fileName ?? null,
+            weight: resolveFontWeight(event.weight),
+            style: resolveFontStyle(event.style),
             family: familyFromMeta({
               family: event.family,
               fileName: event.fileName,
@@ -288,6 +317,8 @@ export const specimenMachine = setup({
             format: null,
             family: null,
             fileName: null,
+            weight: defaultSpecimenContext.weight,
+            style: defaultSpecimenContext.style,
             error: null,
             sourceUrl: null,
             font: null,
@@ -313,6 +344,8 @@ export const specimenMachine = setup({
             rawUrl: event.rawUrl ?? null,
             format: event.format ?? null,
             fileName: event.fileName ?? null,
+            weight: resolveFontWeight(event.weight),
+            style: resolveFontStyle(event.style),
             family: familyFromMeta({
               family: event.family,
               fileName: event.fileName,
@@ -332,6 +365,8 @@ export const specimenMachine = setup({
             format: null,
             family: null,
             fileName: null,
+            weight: defaultSpecimenContext.weight,
+            style: defaultSpecimenContext.style,
             error: null,
             sourceUrl: null,
             font: null,
@@ -361,6 +396,8 @@ export const specimenMachine = setup({
             rawUrl: event.rawUrl ?? null,
             format: event.format ?? null,
             fileName: event.fileName ?? null,
+            weight: resolveFontWeight(event.weight),
+            style: resolveFontStyle(event.style),
             family: familyFromMeta({
               family: event.family,
               fileName: event.fileName,
@@ -380,6 +417,8 @@ export const specimenMachine = setup({
             format: null,
             family: null,
             fileName: null,
+            weight: defaultSpecimenContext.weight,
+            style: defaultSpecimenContext.style,
             error: null,
             sourceUrl: null,
             font: null,

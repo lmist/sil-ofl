@@ -1,4 +1,8 @@
 import type { FontFile } from "@/types/catalog";
+import {
+  resolveFontStyle,
+  resolveFontWeight,
+} from "@/lib/font-face-descriptors";
 
 /** CSS `format()` token for @font-face src. */
 export function cssFormatHint(format: string): string {
@@ -51,11 +55,8 @@ export type FontUseSnippets = {
 export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
   const family = familyName(font);
   const familyCss = cssFontFamilyValue(family);
-  const weight = font.weightGuess && font.weightGuess > 0 ? font.weightGuess : 400;
-  const style =
-    font.styleGuess === "italic" || font.styleGuess === "oblique"
-      ? font.styleGuess
-      : "normal";
+  const weight = resolveFontWeight(font.weightGuess);
+  const style = resolveFontStyle(font.styleGuess);
   const fmt = cssFormatHint(font.format);
   const url = font.cdnUrl || font.rawUrl;
 
@@ -75,6 +76,8 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
     `/* use it */`,
     `.my-text {`,
     `  font-family: ${familyCss}, system-ui, sans-serif;`,
+    `  font-weight: ${weight};`,
+    `  font-style: ${style};`,
     `}`,
   ].join("\n");
 
@@ -94,6 +97,8 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
     `    }`,
     `    body {`,
     `      font-family: ${familyCss}, system-ui, sans-serif;`,
+    `      font-weight: ${weight};`,
+    `      font-style: ${style};`,
     `      font-size: 2rem;`,
     `    }`,
     `  </style>`,
@@ -104,8 +109,7 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
     `</html>`,
   ].join("\n");
 
-  const react = [
-    `// Drop into a global CSS file or CSS module`,
+  const reactFontFace = [
     `@font-face {`,
     `  font-family: ${familyCss};`,
     `  src: url('${url}') format('${fmt}');`,
@@ -113,9 +117,25 @@ export function buildFontUseSnippets(font: FontFile): FontUseSnippets {
     `  font-style: ${style};`,
     `  font-display: swap;`,
     `}`,
-    ``,
-    `// Then in JSX:`,
-    `// <p style={{ fontFamily: "${family.replace(/"/g, '\\"')}, system-ui, sans-serif" }}>…</p>`,
+  ].join("\n");
+
+  const react = [
+    `export function FontExample() {`,
+    `  return (`,
+    `    <>`,
+    `      <style>{${JSON.stringify(reactFontFace)}}</style>`,
+    `      <p`,
+    `        style={{`,
+    `          fontFamily: ${JSON.stringify(`${family}, system-ui, sans-serif`)},`,
+    `          fontWeight: ${weight},`,
+    `          fontStyle: ${JSON.stringify(style)},`,
+    `        }}`,
+    `      >`,
+    `        The quick brown fox jumps over the lazy dog.`,
+    `      </p>`,
+    `    </>`,
+    `  );`,
+    `}`,
   ].join("\n");
 
   return {

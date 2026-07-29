@@ -6,6 +6,20 @@ import { buildFontUseSnippets } from "@/lib/font-use-snippets";
 
 export type UseSnippetKind = "css" | "html" | "react" | "cdn" | "raw";
 
+type CopyFeedback = {
+  fontId: number;
+  kind: UseSnippetKind;
+  status: "copied" | "failed";
+};
+
+const COPY_LABELS: Record<UseSnippetKind, string> = {
+  css: "CSS",
+  html: "HTML example",
+  react: "React example",
+  cdn: "CDN URL",
+  raw: "Raw URL",
+};
+
 /**
  * Headless "use this font" panel — one-click copy snippets + download/repo links.
  * Copy feedback is event-driven (no useEffect).
@@ -13,7 +27,8 @@ export type UseSnippetKind = "css" | "html" | "react" | "cdn" | "raw";
 export function useFontUsePanel() {
   const shell = useFontCatalogShellContext();
   const font = shell.selectedEdge?.node ?? null;
-  const [copied, setCopied] = useState<UseSnippetKind | null>(null);
+  const fontId = font?.fontFileId ?? null;
+  const [feedback, setFeedback] = useState<CopyFeedback | null>(null);
   const copyToken = useRef(0);
 
   const snippets = useMemo(
@@ -21,35 +36,69 @@ export function useFontUsePanel() {
     [font],
   );
 
-  const copyText = useCallback(async (kind: UseSnippetKind, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
+  const copyText = useCallback(
+    async (kind: UseSnippetKind, text: string, selectedFontId: number) => {
       const token = ++copyToken.current;
-      setCopied(kind);
-      window.setTimeout(() => {
-        if (copyToken.current === token) setCopied(null);
-      }, 1600);
-    } catch {
-      // Fallback for restricted clipboard
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.setAttribute("readonly", "");
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
+      setFeedback(null);
+      let confirmed = false;
+
       try {
-        document.execCommand("copy");
-        const token = ++copyToken.current;
-        setCopied(kind);
-        window.setTimeout(() => {
-          if (copyToken.current === token) setCopied(null);
-        }, 1600);
-      } finally {
-        document.body.removeChild(ta);
+        if (!navigator.clipboard?.writeText) {
+          throw new Error("Clipboard API unavailable");
+        }
+        await navigator.clipboard.writeText(text);
+        confirmed = true;
+      } catch {
+        // Fallback for restricted clipboard environments.
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          confirmed = document.execCommand("copy") === true;
+        } catch {
+          confirmed = false;
+        } finally {
+          document.body.removeChild(ta);
+        }
       }
-    }
-  }, []);
+
+      if (copyToken.current !== token) return;
+
+      if (!confirmed) {
+        setFeedback({
+          fontId: selectedFontId,
+          kind,
+          status: "failed",
+        });
+        return;
+      }
+
+      setFeedback({
+        fontId: selectedFontId,
+        kind,
+        status: "copied",
+      });
+      window.setTimeout(() => {
+        if (copyToken.current === token) setFeedback(null);
+      }, 1600);
+    },
+    [],
+  );
+
+  const activeFeedback = feedback?.fontId === fontId ? feedback : null;
+  const copied =
+    activeFeedback?.status === "copied" ? activeFeedback.kind : null;
+  const copyError =
+    activeFeedback?.status === "failed" ? activeFeedback.kind : null;
+  const copyMessage = copied
+    ? `${COPY_LABELS[copied]} copied.`
+    : copyError
+      ? "Copy failed. Try again."
+      : null;
 
   const copyCssProps = useMemo(
     () =>
@@ -57,11 +106,13 @@ export function useFontUsePanel() {
         type: "button" as const,
         disabled: !snippets,
         onClick: () => {
-          if (snippets) void copyText("css", snippets.css);
+          if (snippets && fontId != null) {
+            void copyText("css", snippets.css, fontId);
+          }
         },
         "aria-label": "Copy CSS @font-face",
       }) as const,
-    [snippets, copyText],
+    [snippets, fontId, copyText],
   );
 
   const copyHtmlProps = useMemo(
@@ -70,11 +121,13 @@ export function useFontUsePanel() {
         type: "button" as const,
         disabled: !snippets,
         onClick: () => {
-          if (snippets) void copyText("html", snippets.html);
+          if (snippets && fontId != null) {
+            void copyText("html", snippets.html, fontId);
+          }
         },
         "aria-label": "Copy HTML starter page",
       }) as const,
-    [snippets, copyText],
+    [snippets, fontId, copyText],
   );
 
   const copyReactProps = useMemo(
@@ -83,11 +136,13 @@ export function useFontUsePanel() {
         type: "button" as const,
         disabled: !snippets,
         onClick: () => {
-          if (snippets) void copyText("react", snippets.react);
+          if (snippets && fontId != null) {
+            void copyText("react", snippets.react, fontId);
+          }
         },
         "aria-label": "Copy React / CSS usage",
       }) as const,
-    [snippets, copyText],
+    [snippets, fontId, copyText],
   );
 
   const copyCdnProps = useMemo(
@@ -96,11 +151,13 @@ export function useFontUsePanel() {
         type: "button" as const,
         disabled: !snippets,
         onClick: () => {
-          if (snippets) void copyText("cdn", snippets.cdnUrl);
+          if (snippets && fontId != null) {
+            void copyText("cdn", snippets.cdnUrl, fontId);
+          }
         },
         "aria-label": "Copy CDN URL",
       }) as const,
-    [snippets, copyText],
+    [snippets, fontId, copyText],
   );
 
   const copyRawProps = useMemo(
@@ -109,11 +166,13 @@ export function useFontUsePanel() {
         type: "button" as const,
         disabled: !snippets,
         onClick: () => {
-          if (snippets) void copyText("raw", snippets.rawUrl);
+          if (snippets && fontId != null) {
+            void copyText("raw", snippets.rawUrl, fontId);
+          }
         },
         "aria-label": "Copy raw GitHub URL",
       }) as const,
-    [snippets, copyText],
+    [snippets, fontId, copyText],
   );
 
   const downloadProps = useMemo(
@@ -162,6 +221,8 @@ export function useFontUsePanel() {
     font,
     snippets,
     copied,
+    copyError,
+    copyMessage,
     rootProps,
     copyCssProps,
     copyHtmlProps,

@@ -79,6 +79,24 @@ describe("specimenMachine", () => {
     );
   });
 
+  it("LOAD preserves the resolved face weight and style", async () => {
+    const actor = createTestSpecimen();
+    actor.send({
+      type: "LOAD",
+      fontId: 10,
+      cdnUrl: "https://cdn.example/italic.woff2",
+      family: "Test Italic",
+      format: "woff2",
+      weight: 700,
+      style: "italic",
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(actor.getSnapshot().value, "ready");
+    assert.equal(actor.getSnapshot().context.weight, 700);
+    assert.equal(actor.getSnapshot().context.style, "italic");
+  });
+
   it("LOAD face error → error, RETRY recovers", async () => {
     const actor = createTestSpecimen({ faceFail: true });
     actor.send({
