@@ -207,6 +207,13 @@ request dimension MUST be retained in `Vary`.
 Production MUST NOT expose GraphiQL, raw unexpected errors, database details, or
 secrets. Development diagnostics MUST not change cache or CORS safety.
 
+### INV-GQL-7 — One request has bounded work
+
+GraphQL document bytes, nesting, field count, aliases, and repeated expensive
+root connections MUST have explicit server-enforced limits. An over-budget
+request MUST be rejected before resolver or database work and MUST receive
+private `no-store` caching.
+
 ## Accessibility and interaction
 
 ### INV-A11Y-1 — Valid semantics
