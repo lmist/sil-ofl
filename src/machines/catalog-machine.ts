@@ -10,6 +10,7 @@ import {
   type FetchFontsInput,
 } from "./actors/fetch-fonts";
 import type { CatalogUrlSlice } from "./catalog-url";
+import { isPositiveSafeInteger } from "@/lib/positive-safe-integer";
 
 /** Search debounce for SET_Q (XState delayed transition — not useEffect). */
 export const CATALOG_Q_DEBOUNCE_MS = 175;
@@ -54,6 +55,7 @@ export type CatalogContext = {
 
 export type CatalogEvent =
   | { type: "SET_Q"; q: string }
+  | { type: "COMMIT_Q" }
   | {
       type: "SET_FILTER";
       filter: Partial<CatalogFilters>;
@@ -127,6 +129,7 @@ function mergeCatalogFilters(
   return {
     ...current,
     ...patch,
+    owner: (patch.owner ?? current.owner).trim(),
     ...(patch.minStars !== undefined
       ? { minStars: normalizeMinStars(patch.minStars) }
       : {}),
@@ -135,9 +138,12 @@ function mergeCatalogFilters(
 
 /** Map machine context → GraphQL / TanStack Query filter key. */
 export function toFontsFilter(ctx: CatalogContext): FontsFilter {
+  const q = ctx.q.trim();
+  const owner = ctx.filters.owner.trim();
+
   return {
-    q: ctx.q || null,
-    owner: ctx.filters.owner || null,
+    q: q || null,
+    owner: owner || null,
     format: ctx.filters.format ? [ctx.filters.format] : null,
     minStars: ctx.filters.minStars > 0 ? ctx.filters.minStars : null,
     webfont: ctx.filters.webfont,
@@ -165,14 +171,14 @@ function applyHydrateSlice(
 ): CatalogContext {
   return {
     ...context,
-    q: slice.q ?? context.q,
+    q: slice.q !== undefined ? slice.q.trim() : context.q,
     filters: {
       ...context.filters,
       ...(slice.filters?.format !== undefined
         ? { format: slice.filters.format }
         : {}),
       ...(slice.filters?.owner !== undefined
-        ? { owner: slice.filters.owner }
+        ? { owner: slice.filters.owner.trim() }
         : {}),
     },
     sort: slice.sort ?? context.sort,
@@ -181,7 +187,9 @@ function applyHydrateSlice(
     cursorStack: [],
     selectedFontId:
       slice.selectedFontId !== undefined
-        ? slice.selectedFontId
+        ? isPositiveSafeInteger(slice.selectedFontId)
+          ? slice.selectedFontId
+          : null
         : context.selectedFontId,
     // Keep previous connection as placeholder until invoke completes.
     error: null,
@@ -201,18 +209,34 @@ export const catalogMachine = setup({
   delays: {
     qDebounce: CATALOG_Q_DEBOUNCE_MS,
   },
+  guards: {
+    hasValidSelectedFontId: ({ event }) =>
+      event.type === "SELECT_FONT" &&
+      isPositiveSafeInteger(event.id),
+  },
 }).createMachine({
   id: "catalog",
   initial: "ready",
-  context: ({ input }) => ({
-    ...defaultCatalogContext,
-    ...input,
-    filters: mergeCatalogFilters(defaultCatalogFilters, input?.filters ?? {}),
-    cursorStack: input?.cursorStack ? [...input.cursorStack] : [],
-    connection: null,
-    error: null,
-    isLoading: true,
-  }),
+  context: ({ input }) => {
+    const selectedFontId = isPositiveSafeInteger(input?.selectedFontId)
+      ? input.selectedFontId
+      : null;
+
+    return {
+      ...defaultCatalogContext,
+      ...input,
+      q: input?.q?.trim() ?? defaultCatalogContext.q,
+      filters: mergeCatalogFilters(
+        defaultCatalogFilters,
+        input?.filters ?? {},
+      ),
+      cursorStack: input?.cursorStack ? [...input.cursorStack] : [],
+      selectedFontId,
+      connection: null,
+      error: null,
+      isLoading: true,
+    };
+  },
   states: {
     /**
      * Brief resting state after hard resets; immediately enters ready
@@ -245,9 +269,6 @@ export const catalogMachine = setup({
       after: {
         qDebounce: {
           target: "ready",
-          actions: assign(({ context }) => ({
-            q: context.q.trim(),
-          })),
         },
       },
       on: {
@@ -258,6 +279,14 @@ export const catalogMachine = setup({
             q: event.q,
             ...resetPagination(),
             error: null,
+          })),
+        },
+        COMMIT_Q: {
+          target: "ready",
+          actions: assign(({ context }) => ({
+            q: context.q.trim(),
+            error: null,
+            isLoading: true,
           })),
         },
         SET_FILTER: {
@@ -324,6 +353,7 @@ export const catalogMachine = setup({
           })),
         },
         SELECT_FONT: {
+          guard: "hasValidSelectedFontId",
           actions: assign({
             selectedFontId: ({ event }) => event.id,
           }),
@@ -369,6 +399,11 @@ export const catalogMachine = setup({
             ...resetPagination(),
             error: null,
             isLoading: false,
+          })),
+        },
+        COMMIT_Q: {
+          actions: assign(({ context }) => ({
+            q: context.q.trim(),
           })),
         },
         SET_FILTER: {
@@ -482,6 +517,7 @@ export const catalogMachine = setup({
           })),
         },
         SELECT_FONT: {
+          guard: "hasValidSelectedFontId",
           actions: assign({
             selectedFontId: ({ event }) => event.id,
           }),

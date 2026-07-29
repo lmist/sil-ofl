@@ -77,12 +77,15 @@ export function useFontList() {
   const specimenText = shell.specimenText;
   const getRowInteractionProps = shell.getRowInteractionProps;
   const edges = shell.edges;
+  const after = shell.catalog.context.after;
   const cursorDepth = shell.catalog.context.cursorStack.length;
+  const hasAbsolutePageAnchor =
+    after == null || shell.catalog.context.cursorStack[0] === "";
   const pageOffset = shell.isPlaceholderData
     ? null
-    : shell.catalog.context.after == null
+    : after == null
       ? 0
-      : cursorDepth === 0
+      : !hasAbsolutePageAnchor
         ? null
         : shell.hasNext
           ? cursorDepth * count
@@ -113,7 +116,7 @@ export function useFontList() {
         key: edge.node.fontFileId,
         ariaPosInSet:
           pageOffset == null ? undefined : pageOffset + vItem.index + 1,
-        ariaSetSize: setSize,
+        ariaSetSize: pageOffset == null ? undefined : setSize,
         wrapperStyle: {
           position: "absolute" as const,
           top: 0,
@@ -130,7 +133,6 @@ export function useFontList() {
             onFocus: interaction.onFocus,
             onKeyDown: interaction.onKeyDown,
             "aria-pressed": interaction["aria-pressed"],
-            "aria-label": interaction["aria-label"],
             "data-selected": interaction["data-selected"],
             "data-face-ready": interaction["data-face-ready"],
           },

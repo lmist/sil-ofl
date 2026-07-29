@@ -1,5 +1,8 @@
 import { fromPromise } from "xstate";
-import type { QueryClient } from "@tanstack/react-query";
+import type {
+  QueryClient,
+  QueryKey,
+} from "@tanstack/react-query";
 import { getGraphqlClient } from "@/graphql/client";
 import {
   FONTS_QUERY,
@@ -20,6 +23,106 @@ import {
 export type FetchFontsInput = FontsFilter & {
   queryClient?: QueryClient | null;
 };
+
+export type ComposedAbortSignals = {
+  signal: AbortSignal;
+  dispose: () => void;
+};
+
+/**
+ * Create a signal that aborts when any unique source aborts.
+ * `dispose` must be called when the guarded work settles.
+ */
+export function composeAbortSignals(
+  ...candidates: Array<AbortSignal | null | undefined>
+): ComposedAbortSignals {
+  const sources = [...new Set(candidates.filter(Boolean))] as AbortSignal[];
+  if (sources.length === 1) {
+    return { signal: sources[0]!, dispose: () => {} };
+  }
+
+  const controller = new AbortController();
+  const listeners = new Map<AbortSignal, () => void>();
+  let disposed = false;
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    for (const [source, listener] of listeners) {
+      source.removeEventListener("abort", listener);
+    }
+    listeners.clear();
+  };
+
+  const abortFrom = (source: AbortSignal) => {
+    if (controller.signal.aborted) return;
+    dispose();
+    controller.abort(source.reason);
+  };
+
+  const alreadyAborted = sources.find((source) => source.aborted);
+  if (alreadyAborted) {
+    abortFrom(alreadyAborted);
+    return { signal: controller.signal, dispose };
+  }
+
+  for (const source of sources) {
+    const listener = () => abortFrom(source);
+    listeners.set(source, listener);
+    source.addEventListener("abort", listener, { once: true });
+  }
+
+  const abortedDuringSetup = sources.find((source) => source.aborted);
+  if (abortedDuringSetup) abortFrom(abortedDuringSetup);
+
+  return { signal: controller.signal, dispose };
+}
+
+async function withComposedAbortSignals<T>(
+  querySignal: AbortSignal | undefined,
+  actorSignal: AbortSignal,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const composed = composeAbortSignals(querySignal, actorSignal);
+  try {
+    return await operation(composed.signal);
+  } finally {
+    composed.dispose();
+  }
+}
+
+async function fetchQueryForActor<T>(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  actorSignal: AbortSignal,
+  fetchQuery: () => Promise<T>,
+): Promise<T> {
+  const cancelQuery = () => {
+    void queryClient.cancelQueries({ queryKey, exact: true });
+  };
+
+  if (actorSignal.aborted) {
+    cancelQuery();
+    throw (
+      actorSignal.reason ??
+      new DOMException("Aborted", "AbortError")
+    );
+  }
+
+  actorSignal.addEventListener("abort", cancelQuery, { once: true });
+  try {
+    if (actorSignal.aborted) {
+      cancelQuery();
+      throw (
+        actorSignal.reason ??
+        new DOMException("Aborted", "AbortError")
+      );
+    }
+    return await fetchQuery();
+  } finally {
+    actorSignal.removeEventListener("abort", cancelQuery);
+  }
+}
 
 /**
  * GraphQL variables mirror `toFontsFilter(catalogContext)` / normalizeFontsFilterKey.
@@ -62,11 +165,24 @@ export const fetchFontsLogic = fromPromise<FontConnection, FetchFontsInput>(
     const { queryClient, ...filter } = input;
     const normalized = normalizeFontsFilterKey(filter);
     if (queryClient) {
-      return queryClient.fetchQuery({
-        queryKey: queryKeys.fonts.list(normalized),
-        queryFn: ({ signal: qs }) => fetchFontsPage(normalized, qs ?? signal),
-        staleTime: FONTS_STALE_TIME_MS,
-      });
+      const queryKey = queryKeys.fonts.list(normalized);
+      return fetchQueryForActor(
+        queryClient,
+        queryKey,
+        signal,
+        () =>
+          queryClient.fetchQuery({
+            queryKey,
+            queryFn: ({ signal: querySignal }) =>
+              withComposedAbortSignals(
+                querySignal,
+                signal,
+                (composedSignal) =>
+                  fetchFontsPage(normalized, composedSignal),
+              ),
+            staleTime: FONTS_STALE_TIME_MS,
+          }),
+      );
     }
     return fetchFontsPage(normalized, signal);
   },
@@ -97,11 +213,24 @@ export const fetchFontLogic = fromPromise<FontNode | null, FetchFontInput>(
   async ({ input, signal }) => {
     const { id, queryClient } = input;
     if (queryClient) {
-      return queryClient.fetchQuery({
-        queryKey: queryKeys.font(id),
-        queryFn: ({ signal: qs }) => fetchFontById(id, qs ?? signal),
-        staleTime: 60_000,
-      });
+      const queryKey = queryKeys.font(id);
+      return fetchQueryForActor(
+        queryClient,
+        queryKey,
+        signal,
+        () =>
+          queryClient.fetchQuery({
+            queryKey,
+            queryFn: ({ signal: querySignal }) =>
+              withComposedAbortSignals(
+                querySignal,
+                signal,
+                (composedSignal) =>
+                  fetchFontById(id, composedSignal),
+              ),
+            staleTime: 60_000,
+          }),
+      );
     }
     return fetchFontById(id, signal);
   },

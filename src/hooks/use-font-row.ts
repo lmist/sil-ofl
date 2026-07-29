@@ -11,7 +11,6 @@ export type FontRowInput = {
     onFocus: () => void;
     onKeyDown: KeyboardEventHandler<HTMLButtonElement>;
     "aria-pressed": boolean;
-    "aria-label": string;
     "data-selected": string;
     "data-face-ready": string;
   };

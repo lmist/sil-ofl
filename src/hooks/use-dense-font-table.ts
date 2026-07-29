@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-table";
 import type { FontFile, FontSort } from "@/types/catalog";
 import { useFontCatalogShellContext } from "@/hooks/use-font-catalog-shell";
+import { resolveFontFamily } from "@/lib/font-face-descriptors";
 
 const columnHelper = createColumnHelper<FontFile>();
 
@@ -78,7 +79,7 @@ export function useDenseFontTable() {
   const columns = useMemo(
     () => [
       columnHelper.accessor(
-        (row) => row.familyGuess ?? row.fileName,
+        (row) => resolveFontFamily(row),
         {
           id: "family",
           header: "Family",
@@ -166,7 +167,6 @@ export function useDenseFontTable() {
           },
           onKeyDown: interaction.onKeyDown,
           "aria-pressed": interaction["aria-pressed"],
-          "aria-label": interaction["aria-label"],
           "data-selected": interaction["data-selected"],
           "data-font-row": true,
         },

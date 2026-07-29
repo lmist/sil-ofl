@@ -7,6 +7,12 @@ const DENSE_TABLE = "[data-dense-font-table]";
 const FONT_LIST = "[data-font-list]";
 const FONT_ROW = "[data-font-row]";
 const RESULT_STATUS = "[data-catalog-results-status]";
+const EXTREME_FAMILY = Array(18)
+  .fill("Extraordinarily Long Wrapping Family")
+  .join(" ");
+const EXTREME_OWNER = Array(18)
+  .fill("extraordinarily-long-wrapping-owner")
+  .join(" ");
 
 async function waitForCatalog(page: Page): Promise<void> {
   await expect(page.locator(CATALOG)).toBeVisible();
@@ -317,6 +323,9 @@ test.describe("catalog accessibility and responsive layout", () => {
     await selectButtons.first().press("Enter");
     await expect(selectButtons.first()).toHaveAttribute("aria-pressed", "true");
     await expect(selectButtons.first().getByText("Selected")).toBeVisible();
+    await expect(selectButtons.first()).toHaveAccessibleName(
+      /^Select Selected: /,
+    );
 
     await selectButtons.nth(1).focus();
     await selectButtons.nth(1).press("Space");
@@ -327,7 +336,11 @@ test.describe("catalog accessibility and responsive layout", () => {
 
     const results = await new AxeBuilder({ page })
       .include(FONT_LIST)
-      .withRules(["aria-allowed-attr", "aria-allowed-role"])
+      .withRules([
+        "aria-allowed-attr",
+        "aria-allowed-role",
+        "label-content-name-mismatch",
+      ])
       .analyze();
     expect(results.violations.map(({ id }) => id)).toEqual([]);
 
@@ -336,6 +349,142 @@ test.describe("catalog accessibility and responsive layout", () => {
     await expect(listItems.nth(1)).toHaveAttribute("aria-posinset", "5");
     await expect(listItems.nth(2)).toHaveAttribute("aria-posinset", "6");
     await expect(listItems.first()).toHaveAttribute("aria-setsize", "6");
+  });
+
+  test("long virtual rows stay bounded at 320px and 200% zoom", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    const fontNodes = MOCK_FONTS_PAGE1.map((node, index) =>
+      index === 0
+        ? {
+            ...node,
+            familyGuess: EXTREME_FAMILY,
+            ownerLogin: EXTREME_OWNER,
+            fullName: `${EXTREME_OWNER}/fonts`,
+          }
+        : node,
+    );
+    await mockGraphql({ fontNodes });
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    const list = page.getByRole("list", { name: "Font families" });
+    const listItems = list.getByRole("listitem");
+    await expect(listItems).toHaveCount(3);
+    const firstButton = listItems.nth(0).getByRole("button");
+    const secondButton = listItems.nth(1).getByRole("button");
+
+    await firstButton.click();
+    await expect(firstButton).toHaveAttribute("aria-pressed", "true");
+    await expect(firstButton).toHaveAccessibleName(
+      new RegExp(`^Select Selected: ${EXTREME_FAMILY}`),
+    );
+    await expect(firstButton).toHaveAccessibleName(
+      new RegExp(`${EXTREME_OWNER} · woff2 · ★5000$`),
+    );
+
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("zoom", "2");
+    });
+
+    const readGeometry = () =>
+      listItems.evaluateAll((items) => {
+        const first = items[0];
+        const second = items[1];
+        if (
+          !(first instanceof HTMLElement) ||
+          !(second instanceof HTMLElement)
+        ) {
+          throw new Error("Expected two virtual font rows");
+        }
+
+        const button = first.querySelector<HTMLElement>("[data-font-row]");
+        const list = first.closest<HTMLElement>("[data-font-list]");
+        if (!button || !list) {
+          throw new Error("Expected an interactive font list row");
+        }
+
+        const firstRect = first.getBoundingClientRect();
+        const secondRect = second.getBoundingClientRect();
+        const buttonRect = button.getBoundingClientRect();
+        const content = [
+          button.querySelector<HTMLElement>("[data-font-row-sample]"),
+          button.querySelector<HTMLElement>("[data-font-row-name]"),
+          button.querySelector<HTMLElement>("[data-font-row-meta]"),
+        ].map((element) => {
+          if (!element) throw new Error("Expected complete row content");
+          const rect = element.getBoundingClientRect();
+          return {
+            top: rect.top,
+            bottom: rect.bottom,
+          };
+        });
+        const scrollingElement =
+          document.scrollingElement ?? document.documentElement;
+        const documentScrollWidthWithRow = scrollingElement.scrollWidth;
+        const display = button.style.display;
+        button.style.display = "none";
+        const documentScrollWidthWithoutRow = scrollingElement.scrollWidth;
+        button.style.display = display;
+
+        return {
+          zoom: getComputedStyle(document.documentElement).zoom,
+          firstTop: firstRect.top,
+          firstBottom: firstRect.bottom,
+          firstHeight: firstRect.height,
+          secondTop: secondRect.top,
+          buttonTop: buttonRect.top,
+          buttonBottom: buttonRect.bottom,
+          buttonClientHeight: button.clientHeight,
+          buttonScrollHeight: button.scrollHeight,
+          listClientWidth: list.clientWidth,
+          listScrollWidth: list.scrollWidth,
+          documentScrollWidthWithRow,
+          documentScrollWidthWithoutRow,
+          content,
+        };
+      });
+    await expect.poll(async () => (await readGeometry()).zoom).toBe("2");
+    const geometry = await readGeometry();
+
+    expect(geometry.firstHeight).toBeCloseTo(480, 0);
+    expect(geometry.secondTop).toBeCloseTo(geometry.firstBottom, 0);
+    expect(geometry.buttonTop).toBeGreaterThanOrEqual(geometry.firstTop - 0.5);
+    expect(geometry.buttonBottom).toBeLessThanOrEqual(
+      geometry.firstBottom + 0.5,
+    );
+    expect(geometry.buttonScrollHeight).toBeLessThanOrEqual(
+      geometry.buttonClientHeight,
+    );
+    for (const content of geometry.content) {
+      expect(content.top).toBeGreaterThanOrEqual(geometry.firstTop - 0.5);
+      expect(content.bottom).toBeLessThanOrEqual(geometry.firstBottom + 0.5);
+    }
+    expect(geometry.listScrollWidth).toBeLessThanOrEqual(
+      geometry.listClientWidth,
+    );
+    expect(geometry.documentScrollWidthWithRow).toBeLessThanOrEqual(
+      geometry.documentScrollWidthWithoutRow,
+    );
+
+    await secondButton.scrollIntoViewIfNeeded();
+    await secondButton.click();
+    await expect(secondButton).toHaveAttribute("aria-pressed", "true");
+    await expect(firstButton).toHaveAttribute("aria-pressed", "false");
+    await firstButton.focus();
+    await firstButton.press("Enter");
+    await expect(firstButton).toHaveAttribute("aria-pressed", "true");
+    await secondButton.focus();
+    await secondButton.press("Space");
+    await expect(secondButton).toHaveAttribute("aria-pressed", "true");
+
+    const results = await new AxeBuilder({ page })
+      .include(FONT_LIST)
+      .withRules(["label-content-name-mismatch"])
+      .analyze();
+    expect(results.violations.map(({ id }) => id)).toEqual([]);
   });
 
   test("dense table keeps structural cells and native selection controls", async ({
@@ -373,6 +522,9 @@ test.describe("catalog accessibility and responsive layout", () => {
     await selectButtons.first().press("Enter");
     await expect(selectButtons.first()).toHaveAttribute("aria-pressed", "true");
     await expect(selectButtons.first().getByText("Selected")).toBeVisible();
+    await expect(selectButtons.first()).toHaveAccessibleName(
+      /^Select Selected: /,
+    );
     await selectButtons.nth(1).focus();
     await selectButtons.nth(1).press("Space");
     await expect(selectButtons.nth(1)).toHaveAttribute("aria-pressed", "true");
@@ -383,7 +535,11 @@ test.describe("catalog accessibility and responsive layout", () => {
 
     const results = await new AxeBuilder({ page })
       .include(DENSE_TABLE)
-      .withRules(["aria-allowed-attr", "aria-allowed-role"])
+      .withRules([
+        "aria-allowed-attr",
+        "aria-allowed-role",
+        "label-content-name-mismatch",
+      ])
       .analyze();
     expect(results.violations.map(({ id }) => id)).toEqual([]);
   });

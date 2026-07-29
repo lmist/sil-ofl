@@ -164,12 +164,13 @@ export function DenseFontTable({ className }: { className?: string }) {
                             {...rowProps.selectionProps}
                             className="flex min-h-6 min-w-0 w-full items-center overflow-hidden text-ellipsis whitespace-nowrap text-left underline-offset-4 hover:underline"
                           >
+                            <span className="sr-only">Select </span>
                             {rowProps.selected ? (
                               <span
                                 className="mr-2 shrink-0 font-medium"
                                 data-selection-indicator
                               >
-                                Selected ·
+                                Selected:{" "}
                               </span>
                             ) : null}
                             <span className="min-w-0 overflow-hidden text-ellipsis">

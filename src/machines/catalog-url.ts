@@ -1,5 +1,8 @@
 import type { FontSort } from "@/types/catalog";
-import { parsePositiveSafeInteger } from "@/lib/positive-safe-integer";
+import {
+  isPositiveSafeInteger,
+  parsePositiveSafeInteger,
+} from "@/lib/positive-safe-integer";
 import type { CatalogContext, CatalogFilters } from "./catalog-machine";
 
 /** URL query keys for catalog state (Next App Router searchParams). */
@@ -89,7 +92,7 @@ export function serializeCatalogContext(
   if (ctx.sort && ctx.sort !== "REPUTATION_DESC") {
     params.set(CATALOG_URL_KEYS.sort, ctx.sort);
   }
-  if (ctx.selectedFontId != null) {
+  if (isPositiveSafeInteger(ctx.selectedFontId)) {
     params.set(CATALOG_URL_KEYS.font, String(ctx.selectedFontId));
   }
 

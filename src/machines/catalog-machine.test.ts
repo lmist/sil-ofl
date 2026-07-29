@@ -53,6 +53,70 @@ describe("catalogMachine", () => {
     assert.deepEqual(toFontsFilter(snap.context as CatalogContext).first, 50);
   });
 
+  it("normalizes committed q and owner values supplied as direct input", () => {
+    const machine = catalogMachine.provide({
+      actors: {
+        loadFonts: fromPromise(async () => emptyConnection),
+      },
+    });
+    const actor = createActor(machine, {
+      input: {
+        q: "  Inter  ",
+        filters: {
+          format: "",
+          owner: "  rsms  ",
+          minStars: 0,
+          webfont: null,
+          variable: null,
+        },
+      },
+    });
+    actor.start();
+
+    assert.equal(actor.getSnapshot().context.q, "Inter");
+    assert.equal(actor.getSnapshot().context.filters.owner, "rsms");
+  });
+
+  it("normalizes space-only and Unicode text at committed boundaries", () => {
+    const machine = catalogMachine.provide({
+      actors: {
+        loadFonts: fromPromise(async () => emptyConnection),
+      },
+    });
+    const actor = createActor(machine, {
+      input: {
+        q: " \t\u2003 ",
+        filters: {
+          format: "",
+          owner: "\u00a0\u3000",
+          minStars: 0,
+          webfont: null,
+          variable: null,
+        },
+      },
+    });
+    actor.start();
+
+    assert.equal(actor.getSnapshot().context.q, "");
+    assert.equal(actor.getSnapshot().context.filters.owner, "");
+
+    actor.send({
+      type: "HYDRATE_FROM_URL",
+      slice: {
+        q: "\u2003Noto 😀\u3000",
+        filters: {
+          format: "",
+          owner: "\u00a0font-owner-😀\u2003",
+        },
+      },
+    });
+    assert.equal(actor.getSnapshot().context.q, "Noto 😀");
+    assert.equal(
+      actor.getSnapshot().context.filters.owner,
+      "font-owner-😀",
+    );
+  });
+
   it("debounces SET_Q via delayed transition (not immediate ready)", () => {
     const clock = new SimulatedClock();
     const { actor } = createTestCatalog({ clock });
@@ -69,18 +133,35 @@ describe("catalogMachine", () => {
     assert.equal(actor.getSnapshot().context.q, "cha");
   });
 
-  it("commits a visibly normalized search value after debounce", () => {
+  it("keeps a paused word separator while querying normalized text", () => {
     const clock = new SimulatedClock();
     const { actor } = createTestCatalog({ clock });
 
-    actor.send({ type: "SET_Q", q: "  Source Sans  " });
-    assert.equal(actor.getSnapshot().context.q, "  Source Sans  ");
+    actor.send({ type: "SET_Q", q: "Source " });
+    assert.equal(actor.getSnapshot().context.q, "Source ");
 
     clock.increment(CATALOG_Q_DEBOUNCE_MS);
 
     assert.equal(actor.getSnapshot().value, "ready");
-    assert.equal(actor.getSnapshot().context.q, "Source Sans");
-    assert.equal(toFontsFilter(actor.getSnapshot().context).q, "Source Sans");
+    assert.equal(actor.getSnapshot().context.q, "Source ");
+    assert.equal(toFontsFilter(actor.getSnapshot().context).q, "Source");
+  });
+
+  it("normalizes a pending search before another filter triggers a request", () => {
+    const { actor } = createTestCatalog();
+
+    actor.send({ type: "SET_Q", q: "  Inter  " });
+    actor.send({
+      type: "SET_FILTER",
+      filter: { owner: "rsms" },
+    });
+
+    assert.equal(actor.getSnapshot().value, "ready");
+    assert.equal(toFontsFilter(actor.getSnapshot().context).q, "Inter");
+    assert.equal(
+      toFontsFilter(actor.getSnapshot().context).owner,
+      "rsms",
+    );
   });
 
   it("resets debounce timer when SET_Q re-enters debouncing_q", () => {
@@ -284,6 +365,75 @@ describe("catalogMachine", () => {
     assert.equal(actor.getSnapshot().context.selectedFontId, null);
   });
 
+  it("ignores selected identities outside the positive-safe range", () => {
+    const { actor } = createTestCatalog();
+    actor.send({ type: "SELECT_FONT", id: 42 });
+
+    for (const id of [
+      -1,
+      0,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      actor.send({ type: "SELECT_FONT", id });
+      assert.equal(
+        actor.getSnapshot().context.selectedFontId,
+        42,
+        `id=${String(id)} must not replace the selected identity`,
+      );
+    }
+  });
+
+  it("sanitizes initial and hydrated IDs while preserving large positive-safe IDs", () => {
+    const machine = catalogMachine.provide({
+      actors: {
+        loadFonts: fromPromise(async () => emptyConnection),
+      },
+    });
+
+    for (const selectedFontId of [
+      -1,
+      0,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      const invalidActor = createActor(machine, {
+        input: { selectedFontId },
+      });
+      invalidActor.start();
+      assert.equal(invalidActor.getSnapshot().context.selectedFontId, null);
+      invalidActor.stop();
+    }
+
+    const actor = createActor(machine, {
+      input: { selectedFontId: 2_147_483_648 },
+    });
+    actor.start();
+    assert.equal(
+      actor.getSnapshot().context.selectedFontId,
+      2_147_483_648,
+    );
+
+    actor.send({
+      type: "HYDRATE_FROM_URL",
+      slice: { selectedFontId: Number.NaN },
+    });
+    assert.equal(actor.getSnapshot().context.selectedFontId, null);
+
+    actor.send({
+      type: "HYDRATE_FROM_URL",
+      slice: { selectedFontId: Number.MAX_SAFE_INTEGER },
+    });
+    assert.equal(
+      actor.getSnapshot().context.selectedFontId,
+      Number.MAX_SAFE_INTEGER,
+    );
+  });
+
   it("HYDRATE_FROM_URL applies slice and clears stack", () => {
     const { actor } = createTestCatalog();
     actor.send({ type: "NEXT_PAGE", endCursor: "c1" });
@@ -306,6 +456,21 @@ describe("catalogMachine", () => {
     assert.equal(ctx.selectedFontId, 7);
     assert.equal(ctx.sort, "STARS_DESC");
     assert.equal(actor.getSnapshot().value, "ready");
+  });
+
+  it("normalizes committed q and owner values during URL hydration", () => {
+    const { actor } = createTestCatalog();
+
+    actor.send({
+      type: "HYDRATE_FROM_URL",
+      slice: {
+        q: "  Charis SIL  ",
+        filters: { format: "ttf", owner: "  silnrsi  " },
+      },
+    });
+
+    assert.equal(actor.getSnapshot().context.q, "Charis SIL");
+    assert.equal(actor.getSnapshot().context.filters.owner, "silnrsi");
   });
 
   it("stores connection on successful invoke", async () => {

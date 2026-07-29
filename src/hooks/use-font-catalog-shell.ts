@@ -25,14 +25,72 @@ import {
 } from "@/machines/catalog-machine";
 import type { CatalogEvent } from "@/machines/catalog-machine";
 import type { CatalogUrlSlice } from "@/machines/catalog-url";
-import type { FontFile, FontSort } from "@/types/catalog";
+import type {
+  SpecimenContext,
+  SpecimenEvent,
+} from "@/machines/specimen-machine";
+import type {
+  FontConnection,
+  FontFile,
+  FontSort,
+} from "@/types/catalog";
 import {
   cssFontFamilyValue,
   resolveFontFamily,
+  resolveFontStyle,
+  resolveFontWeight,
 } from "@/lib/font-face-descriptors";
+import { isPositiveSafeInteger } from "@/lib/positive-safe-integer";
+import { queryKeys } from "@/lib/query-keys";
 
 export const DEFAULT_SPECIMEN_TEXT =
   "The quick brown fox jumps over the lazy dog";
+
+type LoadSpecimenEvent = Extract<SpecimenEvent, { type: "LOAD" }>;
+
+function toLoadSpecimenEvent(node: FontFile): LoadSpecimenEvent | null {
+  if (!isPositiveSafeInteger(node.fontFileId)) return null;
+
+  return {
+    type: "LOAD",
+    fontId: node.fontFileId,
+    cdnUrl: node.cdnUrl,
+    rawUrl: node.rawUrl,
+    format: node.format,
+    family: node.familyGuess,
+    fileName: node.fileName,
+    weight: node.weightGuess,
+    style: node.styleGuess,
+  };
+}
+
+function specimenMatchesFont(
+  context: SpecimenContext,
+  node: FontFile,
+): boolean {
+  return (
+    context.fontId === node.fontFileId &&
+    context.cdnUrl === node.cdnUrl &&
+    context.rawUrl === node.rawUrl &&
+    context.format === node.format &&
+    context.fileName === node.fileName &&
+    context.family === resolveFontFamily(node) &&
+    context.weight === resolveFontWeight(node.weightGuess) &&
+    context.style === resolveFontStyle(node.styleGuess)
+  );
+}
+
+function asFontConnection(value: unknown): FontConnection | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("edges" in value) ||
+    !Array.isArray(value.edges)
+  ) {
+    return null;
+  }
+  return value as FontConnection;
+}
 
 export type FontCatalogShellContextValue = ReturnType<
   typeof useFontCatalogShell
@@ -68,7 +126,9 @@ export function useFontCatalogShell() {
 
   const onUrlHydrate = useCallback(
     (slice: CatalogUrlSlice) => {
-      const selectedFontId = slice.selectedFontId;
+      const selectedFontId = isPositiveSafeInteger(slice.selectedFontId)
+        ? slice.selectedFontId
+        : null;
       setSelectedFontCache((cached) =>
         selectedFontId != null && cached?.fontFileId === selectedFontId
           ? cached
@@ -116,11 +176,18 @@ export function useFontCatalogShell() {
   const refetchFonts = fontsQuery.refetch;
 
   const catalogError =
-    error || (fontsQuery.isError ? CATALOG_LOAD_ERROR_MESSAGE : null);
+    error ||
+    (matches("ready") && fontsQuery.isError
+      ? CATALOG_LOAD_ERROR_MESSAGE
+      : null);
 
-  // Prefer query data (includes placeholder), fall back to machine connection.
-  const connection =
-    fontsQuery.data ?? catalog.connection ?? null;
+  // A disabled draft query can still expose cached data for its uncommitted key.
+  // Keep rendering the machine's last committed connection until debounce settles.
+  const connection = (
+    isDebouncing
+      ? catalog.connection
+      : fontsQuery.data ?? catalog.connection
+  ) ?? null;
 
   const isPlaceholderData = Boolean(
     fontsQuery.isPlaceholderData ||
@@ -172,10 +239,58 @@ export function useFontCatalogShell() {
     }
   });
 
+  useMountEffect(() => {
+    const queryClient =
+      catalog.actorRef.getSnapshot().context.queryClient;
+    if (!queryClient) return;
+
+    return queryClient.getQueryCache().subscribe((event) => {
+      const catalogSnapshot = catalog.actorRef.getSnapshot();
+      if (!catalogSnapshot.matches("ready")) return;
+
+      const catalogContext = catalogSnapshot.context;
+      const activeQuery = queryClient.getQueryCache().find({
+        queryKey: queryKeys.fonts.list(
+          toFontsFilter(catalogContext),
+        ),
+        exact: true,
+      });
+      if (event.query !== activeQuery || !event.query.isActive()) return;
+
+      const selectedId = catalogContext.selectedFontId;
+      if (!isPositiveSafeInteger(selectedId)) return;
+
+      const updatedConnection = asFontConnection(
+        event.query.state.data,
+      );
+      const updatedFont =
+        updatedConnection?.edges.find(
+          (edge) => edge.node.fontFileId === selectedId,
+        )?.node ?? null;
+      const loadEvent = updatedFont
+        ? toLoadSpecimenEvent(updatedFont)
+        : null;
+      if (!updatedFont || !loadEvent) return;
+
+      setSelectedFontCache((cached) =>
+        cached === updatedFont ? cached : updatedFont,
+      );
+      if (
+        !specimenMatchesFont(
+          specimenActorRef.getSnapshot().context,
+          updatedFont,
+        )
+      ) {
+        specimenActorRef.send(loadEvent);
+      }
+    });
+  });
+
   const isFetching =
     (matches("ready") && context.isLoading) ||
     (fontsQuery.isFetching && !isDebouncing);
-  const isPageUnresolved = isFetching || isPlaceholderData;
+  const isPageUnresolved =
+    isDebouncing || isFetching || isPlaceholderData;
 
   const isEmpty =
     matches("ready") &&
@@ -219,24 +334,23 @@ export function useFontCatalogShell() {
 
   const loadSpecimen = useCallback(
     (node: FontFile) => {
-      const event = {
-        type: "LOAD",
-        fontId: node.fontFileId,
-        cdnUrl: node.cdnUrl,
-        rawUrl: node.rawUrl,
-        format: node.format,
-        family: node.familyGuess,
-        fileName: node.fileName,
-        weight: node.weightGuess,
-        style: node.styleGuess,
-      } as const;
-      specimen.send(event);
+      const event = toLoadSpecimenEvent(node);
+      if (!event) return;
+      const snapshot = specimenActorRef.getSnapshot();
+      if (
+        (snapshot.matches("loadingFace") || snapshot.matches("ready")) &&
+        specimenMatchesFont(snapshot.context, node)
+      ) {
+        return;
+      }
+      specimenActorRef.send(event);
     },
-    [specimen],
+    [specimenActorRef],
   );
 
   const selectFont = useCallback(
     (node: FontFile) => {
+      if (!isPositiveSafeInteger(node.fontFileId)) return;
       setSelectedFontCache(node);
       send({ type: "SELECT_FONT", id: node.fontFileId });
       loadSpecimen(node);
@@ -247,6 +361,19 @@ export function useFontCatalogShell() {
   const onSearchChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       send({ type: "SET_Q", q: e.target.value });
+    },
+    [send],
+  );
+
+  const onSearchCommit = useCallback(() => {
+    send({ type: "COMMIT_Q" });
+  }, [send]);
+
+  const onSearchKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        send({ type: "COMMIT_Q" });
+      }
     },
     [send],
   );
@@ -378,13 +505,21 @@ export function useFontCatalogShell() {
         type: "search" as const,
         value: context.q,
         onChange: onSearchChange,
+        onBlur: onSearchCommit,
+        onKeyDown: onSearchKeyDown,
         placeholder: "Family, file, owner…",
         autoComplete: "off",
         spellCheck: false,
         "aria-label": "Search fonts",
         "aria-busy": isDebouncing,
       }) as const,
-    [context.q, onSearchChange, isDebouncing],
+    [
+      context.q,
+      onSearchChange,
+      onSearchCommit,
+      onSearchKeyDown,
+      isDebouncing,
+    ],
   );
 
   const formatSelectProps = useMemo(
@@ -531,6 +666,7 @@ export function useFontCatalogShell() {
   const getRowInteractionProps = useCallback(
     (node: FontFile) => {
       const selected = selectedFontId === node.fontFileId;
+      const displayName = resolveFontFamily(node);
       const faceActive =
         specimen.isReady &&
         specimen.context.fontId === node.fontFileId &&
@@ -564,7 +700,6 @@ export function useFontCatalogShell() {
         onFocus,
         onKeyDown,
         "aria-pressed": selected,
-        "aria-label": `Select ${resolveFontFamily(node)}`,
         "data-selected": selected ? "true" : "false",
         "data-face-ready": faceActive ? "true" : "false",
         selected,
@@ -574,7 +709,7 @@ export function useFontCatalogShell() {
               fontFamily: `${cssFontFamilyValue(specimen.family!)}, sans-serif`,
             } as const)
           : undefined,
-        displayName: resolveFontFamily(node),
+        displayName,
         meta: `${node.ownerLogin} · ${node.format} · ★${node.stars}`,
         node,
       };

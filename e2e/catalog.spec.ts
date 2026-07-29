@@ -151,8 +151,12 @@ test.describe("SIL OFL catalog e2e", () => {
     await waitForCatalogReady(page);
 
     const firstRow = page.locator(ROW).first();
-    const familyName = (await firstRow.locator("[data-font-row-name]").innerText())
-      .trim();
+    const familyName = await firstRow
+      .locator("[data-font-row-name]")
+      .getAttribute("title");
+    if (!familyName) {
+      throw new Error("Font row is missing its public family-name title");
+    }
 
     await firstRow.click();
 

@@ -62,8 +62,8 @@ function buildCatalogInput(args: {
 
 /**
  * Thin @xstate/react wrapper around catalogMachine.
- * Debounce is owned by the machine (delayed transition); URL writes happen
- * in the event-handler path only.
+ * Debounce is owned by the machine (delayed transition); the actor
+ * subscription projects committed snapshots into the URL.
  */
 export function useCatalogMachine(options: UseCatalogMachineOptions = {}) {
   const {
@@ -132,15 +132,8 @@ export function useCatalogMachine(options: UseCatalogMachineOptions = {}) {
   const send = useCallback(
     (event: CatalogEvent) => {
       sendRaw(event);
-      if (!syncUrl) return;
-
-      const next = actorRef.getSnapshot();
-      const qs = serializeCatalogContext(next.context);
-      const href = qs ? `${pathname}?${qs}` : pathname;
-
-      window.history.replaceState(null, "", href);
     },
-    [sendRaw, actorRef, syncUrl, pathname],
+    [sendRaw],
   );
 
   return {

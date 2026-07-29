@@ -130,6 +130,31 @@ describe("catalog-url", () => {
     }
   });
 
+  it("never serializes an invalid selected font identity", () => {
+    for (const selectedFontId of [
+      -1,
+      0,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      const query = serializeCatalogContext({
+        q: "",
+        filters: { ...defaultCatalogFilters },
+        sort: "REPUTATION_DESC",
+        after: null,
+        selectedFontId,
+      });
+
+      assert.equal(
+        new URLSearchParams(query).has("font"),
+        false,
+        `selectedFontId=${String(selectedFontId)} must not serialize`,
+      );
+    }
+  });
+
   it("normalizes text and rejects unsupported closed URL values", () => {
     const slice = parseCatalogSearchParams(
       new URLSearchParams({
@@ -144,6 +169,26 @@ describe("catalog-url", () => {
     assert.equal(slice.filters.owner, "adobe-fonts");
     assert.equal(slice.filters.format, "");
     assert.equal(slice.sort, "REPUTATION_DESC");
+  });
+
+  it("normalizes space-only and Unicode URL text without changing content", () => {
+    const empty = parseCatalogSearchParams(
+      new URLSearchParams({
+        q: " \t\u2003 ",
+        owner: "\u00a0\u3000",
+      }),
+    );
+    assert.equal(empty.q, "");
+    assert.equal(empty.filters.owner, "");
+
+    const unicode = parseCatalogSearchParams(
+      new URLSearchParams({
+        q: "\u2003Noto 😀\u3000",
+        owner: "\u00a0font-owner-😀\u2003",
+      }),
+    );
+    assert.equal(unicode.q, "Noto 😀");
+    assert.equal(unicode.filters.owner, "font-owner-😀");
   });
 
   it("serializes normalized text only", () => {

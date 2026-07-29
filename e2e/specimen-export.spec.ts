@@ -229,6 +229,13 @@ test.describe("specimen and export regressions", () => {
       )
       .toBe(true);
     await expect(row).not.toContainText("Unknown-Regular.ttf");
+
+    await page.getByRole("button", { name: "Dense table mode" }).click();
+    const denseRow = page
+      .locator("[data-dense-font-table]")
+      .getByRole("button", { name: /Unknown Regular$/ });
+    await expect(denseRow).toContainText("Unknown Regular");
+    await expect(denseRow).not.toContainText("Unknown-Regular.ttf");
   });
 
   test("font registrations replace the previous face and clear on reset", async ({
@@ -340,7 +347,7 @@ test.describe("specimen and export regressions", () => {
     await openCatalog(page, mockGraphql);
 
     await page
-      .locator('[data-font-row][aria-label="Select Source Sans 3"]')
+      .getByRole("button", { name: /^Select Source Sans 3\b/ })
       .click();
 
     await expect
