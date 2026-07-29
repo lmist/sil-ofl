@@ -90,7 +90,7 @@ async function createGetAdapter() {
 }
 
 describe("GraphQL Playwright mock", () => {
-  it("adapts bodyless GET query, operationName, and JSON variables safely", async () => {
+  it("adapts bodyless GET query, operationName, and JSON variables", async () => {
     const get = await createGetAdapter();
     const fontsUrl = new URL("http://localhost/api/graphql");
     fontsUrl.searchParams.set(
@@ -121,14 +121,16 @@ describe("GraphQL Playwright mock", () => {
       data: { font: { fontFileId: number } | null };
     };
     assert.equal(fontPayload.data.font?.fontFileId, 101);
+  });
 
+  it("returns a deterministic error for malformed GET variables JSON", async () => {
+    const get = await createGetAdapter();
     const malformedVariablesUrl = new URL("http://localhost/api/graphql");
     malformedVariablesUrl.searchParams.set("query", "query Health { health { ok } }");
     malformedVariablesUrl.searchParams.set("variables", "{not-json");
-    const healthPayload = (await get(malformedVariablesUrl)) as {
-      data: { health: { ok: boolean } };
-    };
-    assert.equal(healthPayload.data.health.ok, true);
+    assert.deepEqual(await get(malformedVariablesUrl), {
+      errors: [{ message: "Invalid GraphQL variables." }],
+    });
   });
 
   it("trims owner input and applies the production exact-match predicate", () => {

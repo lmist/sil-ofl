@@ -427,21 +427,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseUrlVariables(
-  value: string | null,
-): GraphqlBody["variables"] | undefined {
-  if (!value) return undefined;
+type ParsedUrlVariables =
+  | { ok: true; variables: GraphqlBody["variables"] | undefined }
+  | { ok: false };
+
+function parseUrlVariables(value: string | null): ParsedUrlVariables {
+  if (!value) return { ok: true, variables: undefined };
   try {
     const parsed: unknown = JSON.parse(value);
+    if (parsed === null) return { ok: true, variables: undefined };
     return isRecord(parsed)
-      ? (parsed as GraphqlBody["variables"])
-      : undefined;
+      ? { ok: true, variables: parsed as GraphqlBody["variables"] }
+      : { ok: false };
   } catch {
-    return undefined;
+    return { ok: false };
   }
 }
 
-function parseGraphqlRequest(request: PlaywrightRequest): GraphqlBody {
+type ParsedGraphqlRequest =
+  | { ok: true; body: GraphqlBody }
+  | { ok: false; message: string };
+
+function parseGraphqlRequest(request: PlaywrightRequest): ParsedGraphqlRequest {
   let postData: unknown;
   try {
     postData = request.postDataJSON();
@@ -451,12 +458,22 @@ function parseGraphqlRequest(request: PlaywrightRequest): GraphqlBody {
 
   const body = isRecord(postData) ? (postData as GraphqlBody) : {};
   const url = new URL(request.url());
+  const urlVariables = parseUrlVariables(url.searchParams.get("variables"));
+  if (body.variables == null && !urlVariables.ok) {
+    return { ok: false, message: "Invalid GraphQL variables." };
+  }
   return {
-    query: body.query ?? url.searchParams.get("query") ?? undefined,
-    operationName:
-      body.operationName ?? url.searchParams.get("operationName") ?? undefined,
-    variables:
-      body.variables ?? parseUrlVariables(url.searchParams.get("variables")),
+    ok: true,
+    body: {
+      query: body.query ?? url.searchParams.get("query") ?? undefined,
+      operationName:
+        body.operationName ??
+        url.searchParams.get("operationName") ??
+        undefined,
+      variables:
+        body.variables ??
+        (urlVariables.ok ? urlVariables.variables : undefined),
+    },
   };
 }
 
@@ -470,9 +487,10 @@ async function fulfillGraphql(
     return;
   }
 
-  const body = parseGraphqlRequest(request);
+  const parsed = parseGraphqlRequest(request);
+  const body = parsed.ok ? parsed.body : {};
 
-  const op = detectOperation(body);
+  const op = parsed.ok ? detectOperation(body) : "InvalidRequest";
   if (options.debug) {
     console.log("[graphql-mock]", op, body.variables);
   }
@@ -486,7 +504,11 @@ async function fulfillGraphql(
   await route.fulfill({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify(resolveGraphqlMock(body, options)),
+    body: JSON.stringify(
+      parsed.ok
+        ? resolveGraphqlMock(body, options)
+        : { errors: [{ message: parsed.message }] },
+    ),
   });
 }
 
