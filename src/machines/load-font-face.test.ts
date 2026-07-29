@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { loadFontFace } from "./load-font-face";
+import { loadFontFace } from "./actors/load-font-face";
 
 function restoreGlobal(
   name: "document" | "FontFace",
