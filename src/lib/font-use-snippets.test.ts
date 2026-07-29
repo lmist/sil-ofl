@@ -35,6 +35,11 @@ const sample: FontFile = {
   ownerUrl: "https://github.com/collletttivo",
 };
 
+function available(value: string | null): string {
+  assert.ok(value);
+  return value;
+}
+
 describe("font-use-snippets", () => {
   it("maps formats", () => {
     assert.equal(cssFormatHint("woff2"), "woff2");
@@ -48,17 +53,19 @@ describe("font-use-snippets", () => {
 
   it("builds pasteable css with cdn url", () => {
     const s = buildFontUseSnippets(sample);
-    assert.match(s.css, /@font-face/);
-    assert.match(s.css, /Apfel Grotezk/);
-    assert.match(s.css, /cdn\.jsdelivr\.net/);
-    assert.match(s.css, /format\('opentype'\)/);
-    assert.match(s.html, /<!doctype html>/i);
+    const css = available(s.css);
+    assert.match(css, /@font-face/);
+    assert.match(css, /Apfel Grotezk/);
+    assert.match(css, /cdn\.jsdelivr\.net/);
+    assert.match(css, /format\('opentype'\)/);
+    assert.match(available(s.html), /<!doctype html>/i);
     assert.equal(s.repoUrl, sample.repoUrl);
   });
 
   it("builds a syntactically valid React example for the selected face", () => {
     const s = buildFontUseSnippets(sample);
-    const result = ts.transpileModule(s.react, {
+    const react = available(s.react);
+    const result = ts.transpileModule(react, {
       fileName: "font-example.tsx",
       reportDiagnostics: true,
       compilerOptions: {
@@ -74,12 +81,12 @@ describe("font-use-snippets", () => {
       );
 
     assert.deepEqual(syntaxErrors, []);
-    assert.doesNotMatch(s.react, /^\s*\/\//m);
-    assert.match(s.react, /export function FontExample/);
-    assert.match(s.react, /Apfel Grotezk/);
-    assert.match(s.react, /cdn\.jsdelivr\.net/);
-    assert.match(s.react, /fontWeight: 400/);
-    assert.match(s.react, /fontStyle: "normal"/);
+    assert.doesNotMatch(react, /^\s*\/\//m);
+    assert.match(react, /export function FontExample/);
+    assert.match(react, /Apfel Grotezk/);
+    assert.match(react, /cdn\.jsdelivr\.net/);
+    assert.match(react, /fontWeight: 400/);
+    assert.match(react, /fontStyle: "normal"/);
   });
 
   it("applies a weighted italic face in every copied usage example", () => {
@@ -91,14 +98,40 @@ describe("font-use-snippets", () => {
     });
 
     assert.match(
-      s.css,
+      available(s.css),
       /\.my-text \{\n  font-family: 'Apfel Grotezk', system-ui, sans-serif;\n  font-weight: 700;\n  font-style: italic;\n\}/,
     );
     assert.match(
-      s.html,
+      available(s.html),
       /body \{\n      font-family: 'Apfel Grotezk', system-ui, sans-serif;\n      font-weight: 700;\n      font-style: italic;/,
     );
-    assert.match(s.react, /fontWeight: 700/);
-    assert.match(s.react, /fontStyle: "italic"/);
+    const react = available(s.react);
+    assert.match(react, /fontWeight: 700/);
+    assert.match(react, /fontStyle: "italic"/);
+  });
+
+  it("does not expose unapproved font or repository targets", () => {
+    const s = buildFontUseSnippets({
+      ...sample,
+      cdnUrl: "https://fonts.evil.example/face.otf",
+      rawUrl: "http://raw.githubusercontent.com/example/fonts/main/face.otf",
+      repoUrl: "javascript:alert(document.domain)",
+    });
+
+    assert.equal(s.css, null);
+    assert.equal(s.html, null);
+    assert.equal(s.react, null);
+    assert.equal(s.cdnUrl, null);
+    assert.equal(s.rawUrl, null);
+    assert.equal(s.repoUrl, null);
+    assert.equal(s.downloadUrl, null);
+    assert.equal(
+      s.policyError,
+      "Some font actions are unavailable because this record has unapproved links.",
+    );
+    assert.doesNotMatch(
+      JSON.stringify(s),
+      /fonts\.evil\.example|javascript:|http:\/\/raw\.githubusercontent\.com/,
+    );
   });
 });

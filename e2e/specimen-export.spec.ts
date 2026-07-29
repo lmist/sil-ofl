@@ -110,4 +110,47 @@ test.describe("specimen and export regressions", () => {
       )
       .toContain("@font-face");
   });
+
+  test("unapproved external targets are unavailable and never requested", async ({
+    page,
+    mockGraphql,
+  }) => {
+    const unsafeRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("fonts.evil.example")) {
+        unsafeRequests.push(request.url());
+      }
+    });
+
+    await mockGraphql({ unsafeExternalUrls: true });
+    await page.goto("/");
+    await expect(page.locator(FONT_LIST)).toBeVisible();
+    await page.locator("[data-font-row]").first().click();
+
+    await expect(page.locator("[data-external-url-error]")).toHaveText(
+      "Some font actions are unavailable because this record has unapproved links. Choose another font.",
+    );
+    for (const name of [
+      "Copy CSS @font-face",
+      "Copy HTML starter page",
+      "Copy React / CSS usage",
+      "Copy CDN URL",
+      "Copy raw GitHub URL",
+    ]) {
+      await expect(page.getByRole("button", { name })).toBeDisabled();
+    }
+    await expect(page.getByRole("link", { name: /^Download / })).toHaveCount(0);
+    await expect(
+      page.getByRole("link", { name: /^Open .* on GitHub$/ }),
+    ).toHaveCount(0);
+    await expect(page.locator("[data-font-specimen]")).toContainText(
+      "Specimen error: Font CDN URL is unavailable",
+    );
+    await expect(
+      page.locator("[data-font-specimen]").getByRole("button", {
+        name: "Retry",
+      }),
+    ).toBeEnabled();
+    expect(unsafeRequests).toEqual([]);
+  });
 });

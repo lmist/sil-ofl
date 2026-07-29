@@ -5,6 +5,8 @@
 
 export const MOCK_INTER_CDN =
   "https://cdn.jsdelivr.net/gh/rsms/inter@master/docs/font-files/Inter-Regular.woff2";
+export const MOCK_INTER_RAW =
+  "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Regular.woff2";
 
 export type MockFontNode = {
   id: string;
@@ -43,7 +45,7 @@ function font(
   return {
     id,
     cdnUrl: MOCK_INTER_CDN,
-    rawUrl: MOCK_INTER_CDN,
+    rawUrl: MOCK_INTER_RAW,
     format: partial.format,
     fileName: partial.fileName,
     path: `fonts/${partial.fileName}`,

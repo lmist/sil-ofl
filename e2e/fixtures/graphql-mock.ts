@@ -15,6 +15,8 @@ export type ResolveGraphqlMockOptions = {
   fontNodes?: readonly MockFontNode[];
   /** Deliberate test-only page cap; production-shaped resolution honors `first`. */
   pageSizeOverride?: number;
+  /** Replace public targets with deliberately unapproved URLs for policy tests. */
+  unsafeExternalUrls?: boolean;
 };
 
 export type GraphqlMockOptions = ResolveGraphqlMockOptions & {
@@ -92,6 +94,20 @@ function edge(node: MockFontNode) {
   return {
     cursor: encodeMockFontCursor(node),
     node,
+  };
+}
+
+function withExternalUrlPolicyFixture(
+  node: MockFontNode,
+  enabled: boolean | undefined,
+): MockFontNode {
+  if (!enabled) return node;
+  return {
+    ...node,
+    cdnUrl: "https://fonts.evil.example/face.woff2",
+    rawUrl:
+      "http://raw.githubusercontent.com/example/fonts/main/face.woff2",
+    repoUrl: "javascript:alert(document.domain)",
   };
 }
 
@@ -388,9 +404,17 @@ export function resolveGraphqlMock(
       };
     }
     const fonts = fontsConnection(body.variables, options);
-    return fonts
-      ? { data: { fonts } }
-      : { errors: [{ message: "Invalid cursor" }] };
+    if (!fonts) return { errors: [{ message: "Invalid cursor" }] };
+    const responseFonts = options.unsafeExternalUrls
+      ? {
+          ...fonts,
+          edges: fonts.edges.map(({ cursor, node }) => ({
+            cursor,
+            node: withExternalUrlPolicyFixture(node, true),
+          })),
+        }
+      : fonts;
+    return { data: { fonts: responseFonts } };
   }
 
   if (op === "Font") {
@@ -399,7 +423,13 @@ export function resolveGraphqlMock(
       fontNodes.find(
         (font) => font.id === id || String(font.fontFileId) === id,
       ) ?? null;
-    return { data: { font: node } };
+    return {
+      data: {
+        font: node
+          ? withExternalUrlPolicyFixture(node, options.unsafeExternalUrls)
+          : null,
+      },
+    };
   }
 
   if (op === "Repo") {
