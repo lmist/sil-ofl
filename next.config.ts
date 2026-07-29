@@ -4,7 +4,7 @@ import type { NextConfig } from "next";
  * Vercel / Next performance defaults for the OFL catalog.
  * - cacheComponents: Partial Prerender static shell + stream client islands
  * - optimizePackageImports: tree-shake heavy icon / query / state packages
- * - headers: long CDN cache for hashed static assets; short SWR for GraphQL GET
+ * - headers: long CDN cache for public static assets
  * - images: remotePatterns only (catalog prefers zero raster images)
  */
 const nextConfig: NextConfig = {
@@ -57,16 +57,6 @@ const nextConfig: NextConfig = {
           {
             key: "Cache-Control",
             value: "public, max-age=86400, stale-while-revalidate=604800",
-          },
-        ],
-      },
-      // GraphQL over HTTP GET — short CDN SWR (POST still hits origin)
-      {
-        source: "/api/graphql",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, s-maxage=30, stale-while-revalidate=120",
           },
         ],
       },

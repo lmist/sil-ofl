@@ -21,7 +21,7 @@ Targets for the home catalog route on Vercel (region `iad1`) with warm Neon.
 4. **`next/font`** — Geist / Geist Mono for UI chrome only. Catalog OFL faces load via on-demand `@font-face` from jsDelivr / raw GitHub (never bundled).
 5. **Streaming** — `loading.tsx` + nested `Suspense` ship Klim-density skeletons immediately.
 6. **Cached stats** — GraphQL `stats` uses `unstable_cache` (`src/lib/cached-stats.ts`, revalidate 60s, tag `catalog-stats`).
-7. **CDN headers** — `/_next/static/*` immutable; public assets short max-age + SWR; GraphQL GET SWR via `next.config` + `vercel.json`.
+7. **CDN headers** — `/_next/static/*` is immutable and public assets use short max-age + SWR. `src/app/api/graphql/route.ts` is the single GraphQL cache-policy source: only successful anonymous cache-safe GET operations receive SWR; POST and error responses are `no-store`.
 8. **No heavy date/util libs** — no `moment`, no full `lodash` imports. Prefer native `Intl` / small helpers.
 9. **Images** — prefer none for the font catalog; `images.remotePatterns` allow-listed if needed later (`next/image`).
 10. **PPR / Cache Components** — `cacheComponents: true` in `next.config.ts` (Next 16 stable).

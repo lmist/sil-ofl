@@ -2,9 +2,9 @@ import SchemaBuilder from "@pothos/core";
 import type { GraphQLSchema } from "graphql";
 import type { Sql } from "@/lib/db";
 
-export type GraphQLContext =
-  | { getSql: () => Sql; sql?: Sql }
-  | { getSql?: () => Sql; sql: Sql };
+export type GraphQLContext = {
+  getSql: () => Sql;
+};
 
 type BuilderConfig = {
   Context: GraphQLContext;

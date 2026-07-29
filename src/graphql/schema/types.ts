@@ -2,7 +2,6 @@ import {
   builder,
   markTypesRegistered,
   typesAlreadyRegistered,
-  type GraphQLContext,
 } from "./builder";
 import { GraphQLError, Kind } from "graphql";
 import {
@@ -65,12 +64,6 @@ function requireDatabaseId(value: number | string, field: string): number {
 function requirePublicLicense(value: string | null): string {
   if (isAcceptedPublicFontLicense(value)) return value;
   throw new Error("public catalog row must have an accepted OFL license");
-}
-
-function sqlForContext(context: GraphQLContext) {
-  if (context.getSql) return context.getSql();
-  if (context.sql) return context.sql;
-  throw new Error("GraphQL context must provide a SQL accessor");
 }
 
 function registerSchemaTypes(): void {
@@ -576,7 +569,7 @@ builder.queryFields((t) => ({
         WHERE ${countWhere.join(" AND ")}
       `;
 
-      const sql = sqlForContext(ctx);
+      const sql = ctx.getSql();
       const [listRaw, countRaw] = await Promise.all([
         sql.query(listSql, params),
         sql.query(countSql, countParams),
@@ -642,7 +635,7 @@ builder.queryFields((t) => ({
           AND ${publicFontVisibilityClauses().join("\n          AND ")}
         LIMIT 1
       `;
-      const rows = (await sqlForContext(ctx).query(detailSql, [id])) as FontRow[];
+      const rows = (await ctx.getSql().query(detailSql, [id])) as FontRow[];
 
       const row = rows[0];
       return row ? mapFont(row) : null;
@@ -768,7 +761,7 @@ builder.queryFields((t) => ({
         WHERE ${countWhere.join(" AND ")}
       `;
 
-      const sql = sqlForContext(ctx);
+      const sql = ctx.getSql();
       const [listRaw, countRaw] = await Promise.all([
         sql.query(listSql, params),
         sql.query(countSql, countParams),
@@ -827,7 +820,7 @@ builder.queryFields((t) => ({
           AND ${publicRepoVisibilityClauses().join("\n          AND ")}
         LIMIT 1
       `;
-      const rows = (await sqlForContext(ctx).query(detailSql, [
+      const rows = (await ctx.getSql().query(detailSql, [
         fullName,
       ])) as RepoRow[];
       const row = rows[0];
