@@ -17,6 +17,17 @@ const originalFetch = globalThis.fetch;
 let activeActors: Array<ReturnType<typeof createActor>> = [];
 let activeQueryClient: QueryClient | null = null;
 
+function installFetchMock(
+  mock: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>,
+): void {
+  globalThis.fetch = Object.assign(mock, {
+    preconnect: originalFetch.preconnect,
+  });
+}
+
 class TrackedAbortSource {
   readonly signal: AbortSignal;
   private aborted = false;
@@ -198,7 +209,7 @@ describe("fetchFontLogic cancellation", () => {
 
   it("does not deduplicate a current A request onto superseded A work", async () => {
     const requests: PendingGraphqlRequest[] = [];
-    globalThis.fetch = async (input, init) => {
+    installFetchMock(async (input, init) => {
       const request =
         input instanceof Request ? input : new Request(input, init);
       const payload = (await request.clone().json()) as {
@@ -222,7 +233,7 @@ describe("fetchFontLogic cancellation", () => {
           once: true,
         });
       });
-    };
+    });
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -255,7 +266,7 @@ describe("fetchFontLogic cancellation", () => {
 
   it("cancels retry backoff before an immediate same-id restart", async () => {
     const requests: PendingGraphqlRequest[] = [];
-    globalThis.fetch = async (input, init) => {
+    installFetchMock(async (input, init) => {
       const request =
         input instanceof Request ? input : new Request(input, init);
       const payload = (await request.clone().json()) as {
@@ -268,7 +279,7 @@ describe("fetchFontLogic cancellation", () => {
         throw new TypeError("transient transport failure");
       }
       return successfulFontResponse(id);
-    };
+    });
 
     const queryClient = new QueryClient({
       defaultOptions: {

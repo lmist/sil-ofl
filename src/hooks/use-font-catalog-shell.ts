@@ -119,8 +119,11 @@ export function useFontCatalogShell() {
   const specimenActorRef = specimen.actorRef;
   const sendSpecimen = specimen.send;
   const statsQuery = useCatalogStatsQuery();
+  const refetchStats = statsQuery.refetch;
   const [specimenText, setSpecimenText] = useState(DEFAULT_SPECIMEN_TEXT);
   const [denseMode, setDenseMode] = useState(false);
+  const [isStatsRetryPending, setIsStatsRetryPending] =
+    useState(false);
   const [selectedFontCache, setSelectedFontCache] =
     useState<FontFile | null>(null);
 
@@ -443,10 +446,34 @@ export function useFontCatalogShell() {
     specimen.send({ type: "CLEAR" });
   }, [send, specimen]);
 
-  const onRetryCatalog = useCallback(async () => {
+  const refetchCatalog = useCallback(async () => {
     send({ type: "RETRY" });
-    await refetchFonts();
+    return refetchFonts();
   }, [send, refetchFonts]);
+
+  const onRetryCatalog = useCallback(async () => {
+    try {
+      await refetchCatalog();
+    } catch {
+      // Inline catalog errors remain represented by machine/query state.
+    }
+  }, [refetchCatalog]);
+
+  const onRetryCatalogBoundary = useCallback(async () => {
+    const result = await refetchCatalog();
+    if (result.isError) {
+      throw result.error ?? new Error(CATALOG_LOAD_ERROR_MESSAGE);
+    }
+  }, [refetchCatalog]);
+
+  const onRetryStats = useCallback(async () => {
+    setIsStatsRetryPending(true);
+    try {
+      await refetchStats();
+    } finally {
+      setIsStatsRetryPending(false);
+    }
+  }, [refetchStats]);
 
   const onRetrySpecimen = useCallback(() => {
     specimen.send({ type: "RETRY" });
@@ -760,7 +787,8 @@ export function useFontCatalogShell() {
     headerStatus,
     stats,
     statsLoading: statsQuery.isLoading,
-    statsError: statsQuery.isError,
+    statsError: statsQuery.isError || isStatsRetryPending,
+    statsFetching: statsQuery.isFetching || isStatsRetryPending,
     denseMode,
 
     // filters snapshot
@@ -787,6 +815,8 @@ export function useFontCatalogShell() {
     resetPaginationProps,
     clearFiltersProps,
     retryCatalogProps,
+    onRetryCatalogBoundary,
+    onRetryStats,
     retrySpecimenProps,
 
     // row factory

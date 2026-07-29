@@ -32,6 +32,8 @@ test.describe("SIL OFL catalog e2e", () => {
     await page.goto("/");
     await waitForCatalogReady(page);
 
+    await expect(page).toHaveTitle("SIL OFL Fonts");
+    await expect(page.locator("head > title")).toHaveCount(1);
     await expect(page.getByText("SIL OFL Fonts")).toBeVisible();
     const stats = page.locator(STATS);
     await expect(stats).toBeVisible();

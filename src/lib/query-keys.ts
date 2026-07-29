@@ -54,6 +54,24 @@ export function normalizeFontsFilterKey(
   };
 }
 
+/** Exact GraphQL variable bag derived from the same normalized key as the cache. */
+export function toFontsGraphqlVariables(filter: FontsFilter) {
+  const key = normalizeFontsFilterKey(filter);
+  return {
+    filter: {
+      q: key.q,
+      owner: key.owner,
+      format: key.format,
+      minStars: key.minStars,
+      webfont: key.webfont,
+      variable: key.variable,
+    },
+    sort: key.sort,
+    first: key.first,
+    after: key.after,
+  } as const;
+}
+
 function normalizeFormatKey(
   format: FontsFilter["format"],
 ): string[] | null {

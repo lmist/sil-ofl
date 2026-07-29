@@ -14,6 +14,7 @@ type ClipboardHarness = {
 };
 
 type LegacyCopyOutcome = "success" | "false" | "throw";
+type ExceptionalLegacyPhase = "selection" | "cleanup";
 type DeferredCopyOutcome = "resolve" | "reject";
 
 type DeferredClipboardHarness = {
@@ -25,6 +26,14 @@ type DeferredClipboardHarness = {
 
 type FontFaceHarness = {
   constructedFamilies: string[];
+  constructedFaces: Array<{
+    family: string;
+    source: string;
+    weight: string;
+    style: string;
+  }>;
+  attemptedSources: string[];
+  addedSources: string[];
   added: number;
   deleted: number;
 };
@@ -39,23 +48,47 @@ declare global {
 
 async function installFontFaceHarness(
   page: import("@playwright/test").Page,
+  loadFailures = 0,
 ): Promise<void> {
-  await page.addInitScript(() => {
+  await page.addInitScript((initialLoadFailures) => {
+    let remainingLoadFailures = initialLoadFailures;
     const harness: FontFaceHarness = {
       constructedFamilies: [],
+      constructedFaces: [],
+      attemptedSources: [],
+      addedSources: [],
       added: 0,
       deleted: 0,
     };
 
     class HarnessFontFace {
       family: string;
+      source: string;
 
-      constructor(family: string) {
+      constructor(
+        family: string,
+        source: string,
+        descriptors: FontFaceDescriptors = {},
+      ) {
         this.family = family;
+        this.source = source;
         harness.constructedFamilies.push(family);
+        harness.constructedFaces.push({
+          family,
+          source,
+          weight: descriptors.weight ?? "normal",
+          style: descriptors.style ?? "normal",
+        });
       }
 
       load(): Promise<this> {
+        harness.attemptedSources.push(this.source);
+        if (remainingLoadFailures > 0) {
+          remainingLoadFailures -= 1;
+          return Promise.reject(
+            new DOMException("Font load failed", "NetworkError"),
+          );
+        }
         return Promise.resolve(this);
       }
     }
@@ -70,8 +103,9 @@ async function installFontFaceHarness(
     });
     Object.defineProperty(document.fonts, "add", {
       configurable: true,
-      value: () => {
+      value: (face: HarnessFontFace) => {
         harness.added += 1;
+        harness.addedSources.push(face.source);
         return document.fonts;
       },
     });
@@ -82,7 +116,7 @@ async function installFontFaceHarness(
         return true;
       },
     });
-  });
+  }, loadFailures);
 }
 
 async function forceLegacyClipboard(
@@ -110,10 +144,57 @@ async function forceLegacyClipboard(
   }, outcome);
 }
 
+async function forceExceptionalLegacyClipboard(
+  page: import("@playwright/test").Page,
+  phase: ExceptionalLegacyPhase,
+): Promise<void> {
+  await page.addInitScript((exceptionPhase) => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new DOMException("Denied", "NotAllowedError");
+        },
+      },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: () => false,
+    });
+
+    const originalSelect = HTMLTextAreaElement.prototype.select;
+    Object.defineProperty(HTMLTextAreaElement.prototype, "select", {
+      configurable: true,
+      value(this: HTMLTextAreaElement) {
+        if (exceptionPhase === "selection" && this.readOnly) {
+          throw new DOMException("Selection failed", "InvalidStateError");
+        }
+        return originalSelect.call(this);
+      },
+    });
+
+    const originalRemoveChild = Node.prototype.removeChild;
+    Object.defineProperty(Node.prototype, "removeChild", {
+      configurable: true,
+      value<T extends Node>(this: Node, child: T): T {
+        if (
+          exceptionPhase === "cleanup" &&
+          child instanceof HTMLTextAreaElement &&
+          child.readOnly
+        ) {
+          throw new DOMException("Cleanup failed", "InvalidStateError");
+        }
+        return originalRemoveChild.call(this, child) as T;
+      },
+    });
+  }, phase);
+}
+
 async function forceDeferredClipboard(
   page: import("@playwright/test").Page,
+  fallbackSucceeds = true,
 ): Promise<void> {
-  await page.addInitScript(() => {
+  await page.addInitScript((shouldFallbackSucceed) => {
     type DeferredSlot = {
       outcome: DeferredCopyOutcome | null;
       resolve: (() => void) | null;
@@ -179,11 +260,13 @@ async function forceDeferredClipboard(
             (element) => element.readOnly,
           )?.value ?? "";
         harness.fallbackTexts.push(fallbackText);
-        harness.clipboardText = fallbackText;
-        return true;
+        if (shouldFallbackSucceed) {
+          harness.clipboardText = fallbackText;
+        }
+        return shouldFallbackSucceed;
       },
     });
-  });
+  }, fallbackSucceeds);
 }
 
 async function openCatalog(
@@ -217,6 +300,35 @@ test.describe("specimen and export regressions", () => {
     await expect(page.locator("[data-font-use-panel] code")).toContainText(
       "font-family: 'Unknown Regular'",
     );
+    const externalLinks = [
+      {
+        locator: page.getByRole("link", { name: /^Download file\b/ }),
+        origin: "https://cdn.jsdelivr.net",
+      },
+      {
+        locator: page.getByRole("link", { name: /^Open .* on GitHub$/ }),
+        origin: "https://github.com",
+      },
+    ];
+    for (const externalLink of externalLinks) {
+      await expect(externalLink.locator).toHaveAttribute("target", "_blank");
+      await expect
+        .poll(() =>
+          externalLink.locator.evaluate((element) => {
+            const anchor = element as HTMLAnchorElement;
+            return {
+              noopener: anchor.relList.contains("noopener"),
+              noreferrer: anchor.relList.contains("noreferrer"),
+              origin: new URL(anchor.href).origin,
+            };
+          }),
+        )
+        .toEqual({
+          noopener: true,
+          noreferrer: true,
+          origin: externalLink.origin,
+        });
+    }
     await expect
       .poll(() =>
         page.evaluate(() => {
@@ -301,6 +413,49 @@ test.describe("specimen and export regressions", () => {
         ),
       )
       .toBe(0);
+  });
+
+  test("approved CDN is attempted before the same face uses raw fallback", async ({
+    page,
+    mockGraphql,
+  }) => {
+    const font = MOCK_FONTS_PAGE1[0]!;
+    const cdnSource = `url(${JSON.stringify(font.cdnUrl)}) format("woff2")`;
+    const rawSource = `url(${JSON.stringify(font.rawUrl)}) format("woff2")`;
+    await installFontFaceHarness(page, 1);
+    await mockGraphql({ fontNodes: [font] });
+    await page.goto("/");
+
+    await page.locator("[data-font-row]").first().click();
+    await expect(page.locator("[data-specimen-status]")).toHaveText(
+      "Specimen face ready.",
+    );
+
+    expect(
+      await page.evaluate(() => window.__fontFaceHarness.constructedFaces),
+    ).toEqual([
+      {
+        family: "Inter",
+        source: cdnSource,
+        weight: "400",
+        style: "normal",
+      },
+      {
+        family: "Inter",
+        source: rawSource,
+        weight: "400",
+        style: "normal",
+      },
+    ]);
+    expect(
+      await page.evaluate(() => window.__fontFaceHarness.attemptedSources),
+    ).toEqual([cdnSource, rawSource]);
+    expect(
+      await page.evaluate(() => ({
+        added: window.__fontFaceHarness.added,
+        sources: window.__fontFaceHarness.addedSources,
+      })),
+    ).toEqual({ added: 1, sources: [rawSource] });
   });
 
   test("adversarial family names remain one inert browser family", async ({
@@ -411,12 +566,18 @@ test.describe("specimen and export regressions", () => {
     await page.evaluate(() => {
       window.__clipboardHarness.allowWrite = true;
     });
-    await copyCss.click();
+    await page
+      .getByRole("button", { name: "Retry Copy CSS" })
+      .click();
 
     await expect(page.locator('[data-copy-feedback][role="status"]')).toHaveText(
       "CSS copied.",
     );
-    await expect(copyCss).toContainText("Copied");
+    await expect(
+      page.getByRole("button", {
+        name: /^Copied\b.*Copy CSS @font-face$/,
+      }),
+    ).toContainText("Copied");
     await expect
       .poll(() =>
         page.evaluate(
@@ -493,6 +654,31 @@ test.describe("specimen and export regressions", () => {
         ).toHaveText("Copy failed. Try again.");
       }
       await expect(copyCdn).toBeFocused();
+    });
+  }
+
+  for (const phase of ["selection", "cleanup"] as const) {
+    test(`legacy clipboard ${phase} exceptions become accessible failures`, async ({
+      page,
+      mockGraphql,
+    }) => {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => {
+        pageErrors.push(error.message);
+      });
+      await forceExceptionalLegacyClipboard(page, phase);
+      await openCatalog(page, mockGraphql);
+      await page.locator("[data-font-row]").first().click();
+
+      await page.getByRole("button", { name: "Copy CDN URL" }).click();
+
+      await expect(
+        page.locator('[data-copy-feedback][role="alert"]'),
+      ).toHaveText("Copy failed. Try again.");
+      await expect(
+        page.getByRole("button", { name: "Retry Copy CDN URL" }),
+      ).toBeEnabled();
+      expect(pageErrors).toEqual([]);
     });
   }
 
@@ -573,6 +759,54 @@ test.describe("specimen and export regressions", () => {
     await expect
       .poll(() => page.evaluate(() => document.activeElement?.tagName))
       .not.toBe("BODY");
+  });
+
+  test("retry keeps its failure announced while the next copy is pending", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await forceDeferredClipboard(page, false);
+    await openCatalog(page, mockGraphql);
+    await page.locator("[data-font-row]").first().click();
+
+    await page.getByRole("button", { name: "Copy CSS @font-face" }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__deferredClipboardHarness.calls.length,
+        ),
+      )
+      .toBe(1);
+    await page.evaluate(() => {
+      window.__deferredClipboardHarness.settle(0, "reject");
+    });
+
+    const failure = page.locator('[data-copy-feedback][role="alert"]');
+    await expect(failure).toHaveText("Copy failed. Try again.");
+    await page
+      .getByRole("button", { name: "Retry Copy CSS" })
+      .click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__deferredClipboardHarness.calls.length,
+        ),
+      )
+      .toBe(2);
+
+    await expect(failure).toHaveText("Copy failed. Try again.");
+    expect(
+      await page.evaluate(
+        () => window.__deferredClipboardHarness.fallbackTexts,
+      ),
+    ).toHaveLength(1);
+
+    await page.evaluate(() => {
+      window.__deferredClipboardHarness.settle(1, "resolve");
+    });
+    await expect(
+      page.locator('[data-copy-feedback][role="status"]'),
+    ).toHaveText("CSS copied.");
   });
 
   for (const olderOutcome of ["reject", "resolve"] as const) {

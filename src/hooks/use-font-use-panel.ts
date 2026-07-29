@@ -20,6 +20,46 @@ const COPY_LABELS: Record<UseSnippetKind, string> = {
   raw: "Raw URL",
 };
 
+function copyWithLegacyFallback(text: string): boolean {
+  const focusOwner =
+    document.activeElement instanceof HTMLElement &&
+    document.activeElement.isConnected
+      ? document.activeElement
+      : null;
+  let textarea: HTMLTextAreaElement | null = null;
+  let confirmed = false;
+
+  try {
+    textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    confirmed = document.execCommand("copy") === true;
+  } catch {
+    confirmed = false;
+  } finally {
+    if (textarea?.isConnected) {
+      try {
+        textarea.parentNode?.removeChild(textarea);
+      } catch {
+        confirmed = false;
+      }
+    }
+    if (focusOwner?.isConnected) {
+      try {
+        focusOwner.focus({ preventScroll: true });
+      } catch {
+        confirmed = false;
+      }
+    }
+  }
+
+  return confirmed;
+}
+
 /**
  * Headless "use this font" panel — one-click copy snippets + download/repo links.
  * Copy feedback is event-driven (no useEffect).
@@ -44,68 +84,60 @@ export function useFontUsePanel() {
       selectedFontId: number,
     ) => {
       const token = ++copyToken.current;
-      setFeedback(null);
-      const queuedCopy = copyQueue.current.then(async () => {
-        if (copyToken.current !== token) return;
-
-        let confirmed = false;
-
-        try {
-          if (!navigator.clipboard?.writeText) {
-            throw new Error("Clipboard API unavailable");
-          }
-          await navigator.clipboard.writeText(text);
-          confirmed = true;
-        } catch {
+      setFeedback((current) =>
+        current?.fontId === selectedFontId &&
+        current.kind === kind &&
+        current.status === "failed"
+          ? current
+          : null,
+      );
+      const queuedCopy = copyQueue.current
+        .then(async () => {
           if (copyToken.current !== token) return;
 
-          // Fallback for restricted clipboard environments.
-          const ta = document.createElement("textarea");
-          ta.value = text;
-          ta.setAttribute("readonly", "");
-          ta.style.position = "fixed";
-          ta.style.left = "-9999px";
-          document.body.appendChild(ta);
-          const focusOwner =
-            document.activeElement instanceof HTMLElement &&
-            document.activeElement.isConnected
-              ? document.activeElement
-              : null;
-          ta.select();
+          let confirmed = false;
+
           try {
-            confirmed = document.execCommand("copy") === true;
-          } catch {
-            confirmed = false;
-          } finally {
-            document.body.removeChild(ta);
-            if (focusOwner?.isConnected) {
-              focusOwner.focus({ preventScroll: true });
+            if (!navigator.clipboard?.writeText) {
+              throw new Error("Clipboard API unavailable");
             }
+            await navigator.clipboard.writeText(text);
+            confirmed = true;
+          } catch {
+            if (copyToken.current !== token) return;
+            confirmed = copyWithLegacyFallback(text);
           }
-        }
 
-        if (copyToken.current !== token) return;
+          if (copyToken.current !== token) return;
 
-        if (!confirmed) {
+          if (!confirmed) {
+            setFeedback({
+              fontId: selectedFontId,
+              kind,
+              status: "failed",
+            });
+            return;
+          }
+
+          setFeedback({
+            fontId: selectedFontId,
+            kind,
+            status: "copied",
+          });
+          window.setTimeout(() => {
+            if (copyToken.current === token) setFeedback(null);
+          }, 1600);
+        })
+        .catch(() => {
+          if (copyToken.current !== token) return;
           setFeedback({
             fontId: selectedFontId,
             kind,
             status: "failed",
           });
-          return;
-        }
-
-        setFeedback({
-          fontId: selectedFontId,
-          kind,
-          status: "copied",
         });
-        window.setTimeout(() => {
-          if (copyToken.current === token) setFeedback(null);
-        }, 1600);
-      });
 
-      copyQueue.current = queuedCopy.catch(() => undefined);
+      copyQueue.current = queuedCopy;
       await queuedCopy;
     },
     [],
@@ -205,7 +237,7 @@ export function useFontUsePanel() {
             download: font?.fileName ?? true,
             target: "_blank" as const,
             rel: "noopener noreferrer",
-            "aria-label": `Download ${snippets.family}`,
+            "aria-label": `Download file — ${snippets.family}`,
           } as const)
         : null,
     [snippets, font?.fileName],

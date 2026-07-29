@@ -92,7 +92,7 @@ function CatalogIslandInner({ className }: { className?: string }) {
         {...shell.shellProps}
         className={cn("flex min-h-0 flex-1 flex-col", className)}
       >
-        <header className="flex h-[var(--header-height)] shrink-0 items-center justify-between border-b border-border px-[var(--gutter)]">
+        <header className="flex min-h-[var(--header-height)] shrink-0 items-center justify-between border-b border-border px-[var(--gutter)]">
           <h1 className="text-[0.8125rem] tracking-tight text-foreground">
             SIL OFL Fonts
           </h1>
@@ -105,7 +105,7 @@ function CatalogIslandInner({ className }: { className?: string }) {
         <FontUsePanel />
         <CatalogErrorBoundary
           label="font list"
-          onRetry={shell.retryCatalogProps.onClick}
+          onRetry={shell.onRetryCatalogBoundary}
         >
           {shell.denseMode ? <DenseFontTable /> : <FontList />}
         </CatalogErrorBoundary>

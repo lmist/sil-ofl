@@ -20,12 +20,29 @@ export function StatsStrip({ className }: { className?: string }) {
       <span className="tabular-nums text-foreground/80">
         {stats.headerStatus}
       </span>
-      {stats.items.map((item) => (
-        <span key={item.key} className="tabular-nums">
-          <span className="text-muted-foreground">{item.label} </span>
-          {item.value}
+      {stats.failureProps ? (
+        <span
+          {...stats.failureProps}
+          className="inline-flex flex-wrap items-center gap-x-2 gap-y-1"
+        >
+          <span>Statistics unavailable.</span>
+          <button
+            {...stats.retryProps}
+            className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-sm px-1.5 text-foreground underline decoration-foreground/40 underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"
+          >
+            Retry statistics
+          </button>
         </span>
-      ))}
+      ) : (
+        stats.items.map((item) => (
+          <span key={item.key} className="tabular-nums">
+            <span className="text-muted-foreground">
+              {item.label}{" "}
+            </span>
+            {item.value}
+          </span>
+        ))
+      )}
     </div>
   );
 }

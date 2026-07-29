@@ -181,6 +181,30 @@ describe("font-use-snippets", () => {
     assert.match(react, /fontStyle: "italic"/);
   });
 
+  it("keeps invalid weights out of every generated artifact", () => {
+    for (const invalidWeight of [0.5, 400.5, 1000.1, 1001]) {
+      const s = buildFontUseSnippets({
+        ...sample,
+        weightGuess: invalidWeight,
+      });
+      const css = available(s.css);
+      const html = available(s.html);
+      const react = available(s.react);
+
+      assert.equal(s.weight, 400);
+      assert.equal(css.match(/font-weight: 400;/g)?.length, 2);
+      assert.equal(html.match(/font-weight: 400;/g)?.length, 2);
+      assert.match(react, /font-weight: 400;/);
+      assert.match(react, /fontWeight: 400/);
+      for (const artifact of [css, html, react]) {
+        assert.doesNotMatch(
+          artifact,
+          new RegExp(`(?:font-weight:|fontWeight:) ${invalidWeight}`),
+        );
+      }
+    }
+  });
+
   it("does not expose unapproved font or repository targets", () => {
     const s = buildFontUseSnippets({
       ...sample,

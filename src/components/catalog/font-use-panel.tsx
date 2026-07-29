@@ -88,7 +88,7 @@ export function FontUsePanel({ className }: { className?: string }) {
             {...panel.downloadProps}
             className="inline-flex min-h-6 min-w-6 items-center text-foreground underline-offset-4 transition-opacity duration-[var(--dur-fast)] hover:underline hover:opacity-80 motion-reduce:transition-none"
           >
-            Download file →
+            Download file <span aria-hidden="true">→</span>
           </a>
         ) : null}
 
@@ -135,15 +135,27 @@ function ActionButton({
   copied,
   failed,
   className,
+  "aria-label": actionContext,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string;
   copied: boolean;
   failed: boolean;
 }) {
+  const visibleLabel = copied
+    ? "Copied"
+    : failed
+      ? `Retry ${label}`
+      : label;
+  const accessibleLabel =
+    actionContext && !actionContext.includes(visibleLabel)
+      ? `${visibleLabel} — ${actionContext}`
+      : actionContext ?? visibleLabel;
+
   return (
     <button
       {...props}
+      aria-label={accessibleLabel}
       className={cn(
         "inline-flex min-h-6 min-w-6 items-center text-left text-foreground underline-offset-4",
         "transition-colors duration-[var(--dur-fast)]",
@@ -155,7 +167,13 @@ function ActionButton({
         className,
       )}
     >
-      {copied ? "Copied ✓" : failed ? `Retry ${label}` : label}
+      {copied ? (
+        <>
+          Copied <span aria-hidden="true">✓</span>
+        </>
+      ) : (
+        visibleLabel
+      )}
     </button>
   );
 }

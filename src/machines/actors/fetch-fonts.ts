@@ -13,11 +13,12 @@ import {
   type FontQueryVariables,
   type FontNode,
 } from "@/graphql/documents";
-import type { FontConnection, FontsFilter, FontSort } from "@/types/catalog";
+import type { FontConnection, FontsFilter } from "@/types/catalog";
 import {
   FONTS_STALE_TIME_MS,
   normalizeFontsFilterKey,
   queryKeys,
+  toFontsGraphqlVariables,
 } from "@/lib/query-keys";
 
 export type FetchFontsInput = FontsFilter & {
@@ -138,19 +139,7 @@ export async function fetchFontsPage(
     FontsQueryVariables
   >({
     document: FONTS_QUERY,
-    variables: {
-      filter: {
-        q: key.q,
-        owner: key.owner,
-        format: key.format,
-        minStars: key.minStars,
-        webfont: key.webfont,
-        variable: key.variable,
-      },
-      sort: (key.sort ?? "REPUTATION_DESC") as FontSort,
-      first: key.first ?? 50,
-      after: key.after ?? null,
-    },
+    variables: toFontsGraphqlVariables(key) as FontsQueryVariables,
     signal,
   });
   return data.fonts;

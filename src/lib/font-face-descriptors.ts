@@ -53,7 +53,10 @@ export function cssFontFamilyValue(name: string): string {
 export function resolveFontWeight(
   weight: number | null | undefined,
 ): number {
-  return typeof weight === "number" && Number.isFinite(weight) && weight > 0
+  return typeof weight === "number" &&
+    Number.isInteger(weight) &&
+    weight >= 1 &&
+    weight <= 1000
     ? weight
     : 400;
 }

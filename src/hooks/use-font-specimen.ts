@@ -74,8 +74,12 @@ export function useFontSpecimen() {
   const metaLine = shell.selectedEdge
     ? `${shell.selectedEdge.node.ownerLogin} · ${shell.selectedEdge.node.format} · ★${shell.selectedEdge.node.stars}`
     : shell.specimenIsLoading
-      ? "Loading face…"
-      : "Hover or select a row";
+      ? shell.selectedFontId == null
+        ? "Loading preview…"
+        : "Loading selected face…"
+      : shell.selectedFontId == null && shell.specimenFamily
+        ? "Preview · not selected"
+        : "Hover or focus a row to preview, or select it";
 
   return {
     rootProps,

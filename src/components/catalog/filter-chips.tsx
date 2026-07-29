@@ -27,6 +27,9 @@ export function FilterChips({ className }: { className?: string }) {
           className="mr-1 text-[0.75rem] tabular-nums text-muted-foreground"
           data-total-count
           data-catalog-results-status
+          data-retained-results={
+            bar.retainingResults ? "true" : undefined
+          }
           role="status"
           aria-live="polite"
           aria-atomic="true"

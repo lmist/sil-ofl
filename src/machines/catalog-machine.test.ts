@@ -282,29 +282,65 @@ describe("catalogMachine", () => {
     assert.deepEqual(actor.getSnapshot().context.cursorStack, []);
   });
 
-  it("SET_FILTER / CLEAR_FILTERS / SET_SORT reset pagination", () => {
+  it("every search, filter, boolean, and sort criterion resets pagination", async () => {
+    const criteria: Array<[
+      string,
+      (actor: ReturnType<typeof createTestCatalog>["actor"]) => void,
+    ]> = [
+      ["search", (actor) => actor.send({ type: "SET_Q", q: "Inter" })],
+      [
+        "format",
+        (actor) =>
+          actor.send({ type: "SET_FILTER", filter: { format: "woff2" } }),
+      ],
+      [
+        "owner",
+        (actor) =>
+          actor.send({ type: "SET_FILTER", filter: { owner: "rsms" } }),
+      ],
+      [
+        "minimum stars",
+        (actor) =>
+          actor.send({ type: "SET_FILTER", filter: { minStars: 10 } }),
+      ],
+      [
+        "webfont",
+        (actor) => actor.send({ type: "TOGGLE_WEBFONT" }),
+      ],
+      [
+        "variable",
+        (actor) => actor.send({ type: "TOGGLE_VARIABLE" }),
+      ],
+      [
+        "sort",
+        (actor) => actor.send({ type: "SET_SORT", sort: "FAMILY_ASC" }),
+      ],
+    ];
+
+    for (const [label, applyCriterion] of criteria) {
+      const { actor } = createTestCatalog();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      actor.send({ type: "NEXT_PAGE", endCursor: `${label}-cursor` });
+      assert.notEqual(actor.getSnapshot().context.after, null, label);
+
+      applyCriterion(actor);
+
+      assert.equal(actor.getSnapshot().context.after, null, label);
+      assert.deepEqual(actor.getSnapshot().context.cursorStack, [], label);
+      actor.stop();
+    }
+
     const { actor } = createTestCatalog();
-    actor.send({ type: "NEXT_PAGE", endCursor: "c1" });
-    actor.send({ type: "SET_FILTER", filter: { owner: "silnrsi", format: "woff2" } });
-    let ctx = actor.getSnapshot().context;
-    assert.equal(ctx.filters.owner, "silnrsi");
-    assert.equal(ctx.filters.format, "woff2");
-    assert.equal(ctx.after, null);
-    assert.deepEqual(ctx.cursorStack, []);
-
-    actor.send({ type: "NEXT_PAGE", endCursor: "c2" });
-    actor.send({ type: "SET_SORT", sort: "FAMILY_ASC" });
-    ctx = actor.getSnapshot().context;
-    assert.equal(ctx.sort, "FAMILY_ASC");
-    assert.equal(ctx.after, null);
-
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    actor.send({ type: "NEXT_PAGE", endCursor: "clear-cursor" });
     actor.send({ type: "SET_FILTER", filter: { minStars: 10 } });
     actor.send({ type: "CLEAR_FILTERS" });
-    ctx = actor.getSnapshot().context;
-    assert.equal(ctx.q, "");
-    assert.equal(ctx.filters.owner, "");
-    assert.equal(ctx.filters.minStars, 0);
-    assert.equal(ctx.after, null);
+    const context = actor.getSnapshot().context;
+    assert.equal(context.q, "");
+    assert.equal(context.filters.owner, "");
+    assert.equal(context.filters.minStars, 0);
+    assert.equal(context.after, null);
+    assert.deepEqual(context.cursorStack, []);
   });
 
   it("CLEAR_FILTERS is a full reset while search is debouncing", () => {

@@ -114,11 +114,14 @@ export function useFilterChips() {
     [],
   );
 
+  const retainingResults = Boolean(
+    shell.isFetching && shell.connection,
+  );
   const statusText = shell.isDebouncing
     ? "Searching…"
     : shell.isFetching
       ? shell.connection
-        ? "Updating results…"
+        ? "Updating results… Showing retained results."
         : "Loading fonts…"
       : shell.connection
         ? `${shell.totalCount.toLocaleString()} match${shell.totalCount === 1 ? "" : "es"}`
@@ -132,6 +135,7 @@ export function useFilterChips() {
     clearAllProps: shell.clearFiltersProps,
     statusText,
     showStatus,
+    retainingResults,
   } as const;
 }
 

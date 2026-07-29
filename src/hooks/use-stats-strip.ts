@@ -21,11 +21,12 @@ export function useStatsStrip() {
   const items = useMemo(() => {
     const s = shell.stats;
     if (!s) {
+      if (shell.statsError) return [];
       return [
         {
           key: "status",
           label: "Status",
-          value: shell.statsLoading ? "…" : shell.statsError ? "—" : "…",
+          value: "…",
         },
       ] as const;
     }
@@ -55,16 +56,38 @@ export function useStatsStrip() {
     ] as const;
   }, [
     shell.stats,
-    shell.statsLoading,
     shell.statsError,
     shell.connection,
     shell.totalCount,
   ]);
 
+  const failureProps = useMemo(
+    () =>
+      shell.statsError
+        ? ({
+            role: "alert" as const,
+            "aria-atomic": true,
+          } as const)
+        : null,
+    [shell.statsError],
+  );
+
+  const retryProps = useMemo(
+    () =>
+      ({
+        type: "button" as const,
+        onClick: shell.onRetryStats,
+        disabled: shell.statsFetching,
+      }) as const,
+    [shell.onRetryStats, shell.statsFetching],
+  );
+
   return {
     rootProps,
     items,
     headerStatus: shell.headerStatus,
+    failureProps,
+    retryProps,
   } as const;
 }
 

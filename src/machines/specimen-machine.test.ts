@@ -178,6 +178,63 @@ describe("specimenMachine", () => {
     assert.equal(actor.getSnapshot().context.error, "Font not found");
   });
 
+  it("ignores a late face completion after a newer selection supersedes it", async () => {
+    const complete = new Map<
+      string,
+      (output: { family: string; sourceUrl: string }) => void
+    >();
+    const machine = specimenMachine.provide({
+      actors: {
+        loadFontFace: fromPromise(
+          ({ input }) =>
+            new Promise((resolve) => {
+              complete.set(input.family, resolve);
+            }),
+        ),
+      },
+    });
+    const actor = createActor(machine, { input: {} });
+    actor.start();
+
+    actor.send({
+      type: "LOAD",
+      fontId: 1,
+      cdnUrl: "https://cdn.example/a.woff2",
+      family: "First Family",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    actor.send({
+      type: "LOAD",
+      fontId: 2,
+      cdnUrl: "https://cdn.example/b.woff2",
+      family: "Second Family",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    complete.get("First Family")?.({
+      family: "First Family",
+      sourceUrl: "https://cdn.example/a.woff2",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(actor.getSnapshot().value, "loadingFace");
+    assert.equal(actor.getSnapshot().context.fontId, 2);
+    assert.equal(actor.getSnapshot().context.family, "Second Family");
+    assert.equal(actor.getSnapshot().context.sourceUrl, null);
+
+    complete.get("Second Family")?.({
+      family: "Second Family",
+      sourceUrl: "https://cdn.example/b.woff2",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(actor.getSnapshot().value, "ready");
+    assert.equal(actor.getSnapshot().context.fontId, 2);
+    assert.equal(actor.getSnapshot().context.family, "Second Family");
+    assert.equal(
+      actor.getSnapshot().context.sourceUrl,
+      "https://cdn.example/b.woff2",
+    );
+  });
+
   it("CLEAR returns to empty", async () => {
     const actor = createTestSpecimen();
     actor.send({

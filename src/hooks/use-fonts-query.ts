@@ -33,25 +33,8 @@ export {
   statsQueryKey,
   queryKeys,
   normalizeFontsFilterKey,
+  toFontsGraphqlVariables,
 } from "@/lib/query-keys";
-
-/** Build the exact GraphQL variable bag used by fetch + machine (`toFontsFilter`). */
-export function toFontsGraphqlVariables(filter: FontsFilter) {
-  const key = normalizeFontsFilterKey(filter);
-  return {
-    filter: {
-      q: key.q,
-      owner: key.owner,
-      format: key.format,
-      minStars: key.minStars,
-      webfont: key.webfont,
-      variable: key.variable,
-    },
-    sort: key.sort,
-    first: key.first,
-    after: key.after,
-  } as const;
-}
 
 export type UseFontsQueryOptions = {
   /** When false, skip network (e.g. while machine is debouncing_q). Default true. */
