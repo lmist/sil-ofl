@@ -182,7 +182,7 @@ export type FontNode = {
   repoId: number;
   repoName: string;
   repoUrl: string;
-  licenseSpdx: string | null;
+  licenseSpdx: string;
   ownerType: string;
   ownerUrl: string | null;
 };
@@ -233,7 +233,7 @@ export type RepoNode = {
   htmlUrl: string;
   stars: number;
   reputation: number;
-  licenseSpdx: string | null;
+  licenseSpdx: string;
   defaultBranch: string;
   ownerLogin: string;
   fontCount: number;

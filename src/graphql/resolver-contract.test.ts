@@ -372,7 +372,63 @@ describe("GraphQL resolver SQL contracts", () => {
     }
   });
 
-  it("reports malformed and invalid-ID cursors as safe client input", async () => {
+  it("serializes PostgreSQL BIGINT IDs above the GraphQL Int32 range", async () => {
+    const fontFileId = 2_147_483_648;
+    const repoId = 2_147_483_649;
+    const calls: SqlCall[] = [];
+    const query = async (text: string, params: unknown[] = []) => {
+      calls.push({ text: normalizeSql(text), params });
+      return [
+        {
+          font_file_id: String(fontFileId),
+          cdn_url: "https://cdn.example/font.ttf",
+          raw_url: "https://raw.example/font.ttf",
+          format: "ttf",
+          file_name: "Font.ttf",
+          path: "fonts/Font.ttf",
+          family_guess: "Font",
+          weight_guess: 400,
+          style_guess: "normal",
+          is_variable: false,
+          is_webfont: false,
+          repo_id: String(repoId),
+          full_name: "owner/repo",
+          repo_name: "repo",
+          repo_url: "https://github.com/owner/repo",
+          stars: 10,
+          reputation: 20,
+          license_spdx: "OFL-1.1",
+          default_branch: "main",
+          owner_login: "owner",
+          owner_type: "User",
+          owner_url: "https://github.com/owner",
+        },
+      ];
+    };
+    const sqlClient = { query };
+
+    const result = await graphql({
+      schema,
+      source: `{
+        font(id: "2147483648") {
+          id
+          fontFileId
+          repoId
+        }
+      }`,
+      contextValue: { getSql: () => sqlClient },
+    });
+
+    assert.equal(result.errors, undefined);
+    assert.deepEqual({ ...(result.data?.font as object) }, {
+      id: String(fontFileId),
+      fontFileId,
+      repoId,
+    });
+    assert.deepEqual(calls[0]?.params, [fontFileId]);
+  });
+
+  it("reports malformed and out-of-contract cursors as safe client input", async () => {
     const cases = [
       {
         field: "fonts",
@@ -386,8 +442,46 @@ describe("GraphQL resolver SQL contracts", () => {
           `{"v":1,"rep":1,"stars":2,"name":"owner/repo","id":9007199254740992}`,
         ),
       },
+      {
+        field: "fonts",
+        cursor: encodeRaw(
+          `{"v":2,"rep":2147483648,"stars":2,"family":"Alpha","id":1}`,
+        ),
+      },
+      {
+        field: "repos",
+        cursor: encodeRaw(
+          `{"v":1,"rep":1,"stars":-2147483649,"name":"owner/repo","id":1}`,
+        ),
+      },
+      {
+        field: "fonts",
+        cursor: encodeRaw(
+          JSON.stringify({
+            v: 2,
+            rep: 1,
+            stars: 2,
+            family: "Al\0pha",
+            id: 1,
+          }),
+        ),
+      },
+      {
+        field: "repos",
+        cursor: encodeRaw(
+          JSON.stringify({
+            v: 1,
+            rep: 1,
+            stars: 2,
+            name: "owner/\0repo",
+            id: 1,
+          }),
+        ),
+      },
       { field: "fonts", cursor: "not-a-cursor" },
       { field: "repos", cursor: "not-a-cursor" },
+      { field: "fonts", cursor: "" },
+      { field: "repos", cursor: "" },
     ] as const;
 
     for (const { field, cursor } of cases) {

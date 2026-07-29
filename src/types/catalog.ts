@@ -30,7 +30,7 @@ export interface FontFile {
   repoUrl: string;
   stars: number;
   reputation: number;
-  licenseSpdx: string | null;
+  licenseSpdx: string;
   defaultBranch: string;
   ownerLogin: string;
   ownerType: string;
@@ -45,7 +45,7 @@ export interface Repo {
   htmlUrl: string;
   stars: number;
   reputation: number;
-  licenseSpdx: string | null;
+  licenseSpdx: string;
   defaultBranch: string;
   ownerLogin: string;
   fontCount: number;

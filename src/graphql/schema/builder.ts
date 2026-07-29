@@ -2,15 +2,16 @@ import SchemaBuilder from "@pothos/core";
 import type { GraphQLSchema } from "graphql";
 import type { Sql } from "@/lib/db";
 
-export type GraphQLContext = {
-  sql: Sql;
-};
+export type GraphQLContext =
+  | { getSql: () => Sql; sql?: Sql }
+  | { getSql?: () => Sql; sql: Sql };
 
 type BuilderConfig = {
   Context: GraphQLContext;
   DefaultFieldNullability: false;
   Scalars: {
     ID: { Input: string; Output: string | number };
+    PositiveSafeInt: { Input: number; Output: number };
   };
 };
 

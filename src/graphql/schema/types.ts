@@ -2,14 +2,16 @@ import {
   builder,
   markTypesRegistered,
   typesAlreadyRegistered,
+  type GraphQLContext,
 } from "./builder";
-import { GraphQLError } from "graphql";
+import { GraphQLError, Kind } from "graphql";
 import {
   decodeFontCursor,
   decodeRepoCursor,
   encodeFontCursor,
   encodeRepoCursor,
   isPositiveSafeInteger,
+  parsePositiveSafeInteger,
 } from "./cursor";
 import {
   fontKeyset,
@@ -18,6 +20,7 @@ import {
 } from "./font-pagination";
 import {
   PUBLIC_RENDERABLE_REPO_FONT_CLAUSE,
+  isAcceptedPublicFontLicense,
   publicFontVisibilityClauses,
   publicRepoVisibilityClauses,
 } from "./public-font-policy";
@@ -41,18 +44,50 @@ function requirePageSize(first: number | null | undefined): number {
 }
 
 function requireFontId(input: string | number): number {
-  if (typeof input === "number") {
-    if (isPositiveSafeInteger(input)) return input;
-  } else if (/^[1-9]\d*$/.test(input)) {
-    const id = Number(input);
-    if (isPositiveSafeInteger(id)) return id;
-  }
+  const id = parsePositiveSafeInteger(input);
+  if (id !== null) return id;
   throw badUserInput("font id must be a positive safe integer");
+}
+
+function requirePositiveSafeInt(value: unknown): number {
+  if (isPositiveSafeInteger(value)) return value;
+  throw new GraphQLError(
+    "PositiveSafeInt cannot represent a non-positive or unsafe integer value",
+  );
+}
+
+function requireDatabaseId(value: number | string, field: string): number {
+  const id = parsePositiveSafeInteger(value);
+  if (id !== null) return id;
+  throw new Error(`${field} must be a positive safe integer`);
+}
+
+function requirePublicLicense(value: string | null): string {
+  if (isAcceptedPublicFontLicense(value)) return value;
+  throw new Error("public catalog row must have an accepted OFL license");
+}
+
+function sqlForContext(context: GraphQLContext) {
+  if (context.getSql) return context.getSql();
+  if (context.sql) return context.sql;
+  throw new Error("GraphQL context must provide a SQL accessor");
 }
 
 function registerSchemaTypes(): void {
   if (typesAlreadyRegistered()) return;
 
+const PositiveSafeInt = builder.scalarType("PositiveSafeInt", {
+  description:
+    "A positive integer that can be represented exactly by a JavaScript number",
+  serialize: requirePositiveSafeInt,
+  parseValue: requirePositiveSafeInt,
+  parseLiteral: (node) => {
+    if (node.kind !== Kind.INT) {
+      throw new GraphQLError("PositiveSafeInt can only parse integer literals");
+    }
+    return requirePositiveSafeInt(Number(node.value));
+  },
+});
 
 /* -------------------------------------------------------------------------- */
 /*  Object types                                                              */
@@ -138,11 +173,17 @@ FontFileRef.implement({
     fullName: t.exposeString("fullName"),
     defaultBranch: t.exposeString("defaultBranch"),
     // Extra fields (compatible with REST / v_renderable_fonts) — safe extensions
-    fontFileId: t.exposeInt("fontFileId"),
-    repoId: t.exposeInt("repoId"),
+    fontFileId: t.field({
+      type: PositiveSafeInt,
+      resolve: (font) => font.fontFileId,
+    }),
+    repoId: t.field({
+      type: PositiveSafeInt,
+      resolve: (font) => font.repoId,
+    }),
     repoName: t.exposeString("repoName"),
     repoUrl: t.exposeString("repoUrl"),
-    licenseSpdx: t.exposeString("licenseSpdx", { nullable: true }),
+    licenseSpdx: t.exposeString("licenseSpdx"),
     ownerType: t.exposeString("ownerType"),
     ownerUrl: t.exposeString("ownerUrl", { nullable: true }),
   }),
@@ -157,7 +198,7 @@ RepoRef.implement({
     htmlUrl: t.exposeString("htmlUrl"),
     stars: t.exposeInt("stars"),
     reputation: t.exposeInt("reputation"),
-    licenseSpdx: t.exposeString("licenseSpdx", { nullable: true }),
+    licenseSpdx: t.exposeString("licenseSpdx"),
     defaultBranch: t.exposeString("defaultBranch"),
     ownerLogin: t.exposeString("ownerLogin"),
     fontCount: t.exposeInt("fontCount"),
@@ -313,7 +354,7 @@ const FONT_SELECT = `
 
 function mapFont(row: FontRow): FontFile {
   return {
-    fontFileId: Number(row.font_file_id),
+    fontFileId: requireDatabaseId(row.font_file_id, "font_file_id"),
     cdnUrl: row.cdn_url,
     rawUrl: row.raw_url,
     format: row.format,
@@ -324,13 +365,13 @@ function mapFont(row: FontRow): FontFile {
     styleGuess: row.style_guess,
     isVariable: Boolean(row.is_variable),
     isWebfont: Boolean(row.is_webfont),
-    repoId: Number(row.repo_id),
+    repoId: requireDatabaseId(row.repo_id, "repo_id"),
     fullName: row.full_name,
     repoName: row.repo_name,
     repoUrl: row.repo_url,
     stars: row.stars,
     reputation: row.reputation,
-    licenseSpdx: row.license_spdx,
+    licenseSpdx: requirePublicLicense(row.license_spdx),
     defaultBranch: row.default_branch,
     ownerLogin: row.owner_login,
     ownerType: row.owner_type,
@@ -354,14 +395,14 @@ type RepoRow = {
 
 function mapRepo(row: RepoRow): Repo {
   return {
-    id: Number(row.id),
+    id: requireDatabaseId(row.id, "repo id"),
     fullName: row.full_name,
     name: row.name,
     description: row.description,
     htmlUrl: row.html_url,
     stars: row.stars,
     reputation: row.reputation,
-    licenseSpdx: row.license_spdx,
+    licenseSpdx: requirePublicLicense(row.license_spdx),
     defaultBranch: row.default_branch,
     ownerLogin: row.owner_login,
     fontCount: Number(row.font_count),
@@ -438,8 +479,9 @@ builder.queryFields((t) => ({
           ? filter.format.map((f) => f.toLowerCase())
           : null;
 
-      const cursor = args.after ? decodeFontCursor(args.after) : null;
-      if (args.after && !cursor) {
+      const after = args.after ?? null;
+      const cursor = after === null ? null : decodeFontCursor(after);
+      if (after !== null && !cursor) {
         throw badUserInput("after must be a valid cursor");
       }
 
@@ -534,9 +576,10 @@ builder.queryFields((t) => ({
         WHERE ${countWhere.join(" AND ")}
       `;
 
+      const sql = sqlForContext(ctx);
       const [listRaw, countRaw] = await Promise.all([
-        ctx.sql.query(listSql, params),
-        ctx.sql.query(countSql, countParams),
+        sql.query(listSql, params),
+        sql.query(countSql, countParams),
       ]);
       const listRows = listRaw as FontRow[];
       const countRows = countRaw as { total: number }[];
@@ -599,7 +642,7 @@ builder.queryFields((t) => ({
           AND ${publicFontVisibilityClauses().join("\n          AND ")}
         LIMIT 1
       `;
-      const rows = (await ctx.sql.query(detailSql, [id])) as FontRow[];
+      const rows = (await sqlForContext(ctx).query(detailSql, [id])) as FontRow[];
 
       const row = rows[0];
       return row ? mapFont(row) : null;
@@ -622,8 +665,9 @@ builder.queryFields((t) => ({
       const qPattern = q ? `%${q}%` : null;
       const withFonts = filter.withFonts ?? null;
 
-      const cursor = args.after ? decodeRepoCursor(args.after) : null;
-      if (args.after && !cursor) {
+      const after = args.after ?? null;
+      const cursor = after === null ? null : decodeRepoCursor(after);
+      if (after !== null && !cursor) {
         throw badUserInput("after must be a valid cursor");
       }
 
@@ -724,9 +768,10 @@ builder.queryFields((t) => ({
         WHERE ${countWhere.join(" AND ")}
       `;
 
+      const sql = sqlForContext(ctx);
       const [listRaw, countRaw] = await Promise.all([
-        ctx.sql.query(listSql, params),
-        ctx.sql.query(countSql, countParams),
+        sql.query(listSql, params),
+        sql.query(countSql, countParams),
       ]);
       const listRows = listRaw as RepoRow[];
       const countRows = countRaw as { total: number }[];
@@ -782,7 +827,9 @@ builder.queryFields((t) => ({
           AND ${publicRepoVisibilityClauses().join("\n          AND ")}
         LIMIT 1
       `;
-      const rows = (await ctx.sql.query(detailSql, [fullName])) as RepoRow[];
+      const rows = (await sqlForContext(ctx).query(detailSql, [
+        fullName,
+      ])) as RepoRow[];
       const row = rows[0];
       return row ? mapRepo(row) : null;
     },

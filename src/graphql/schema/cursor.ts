@@ -38,8 +38,29 @@ function isSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value);
 }
 
+function isSignedInt32(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= -2_147_483_648 &&
+    value <= 2_147_483_647
+  );
+}
+
+function isNulFree(value: string): boolean {
+  return !value.includes("\0");
+}
+
 export function isPositiveSafeInteger(value: unknown): value is number {
   return isSafeInteger(value) && value > 0;
+}
+
+export function parsePositiveSafeInteger(value: unknown): number | null {
+  if (isPositiveSafeInteger(value)) return value;
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return null;
+
+  const parsed = Number(value);
+  return isPositiveSafeInteger(parsed) ? parsed : null;
 }
 
 export function encodeFontCursor(p: FontCursorPayload): string {
@@ -52,9 +73,10 @@ export function decodeFontCursor(cursor: string): FontCursorPayload | null {
     if (
       raw.v !== 2 ||
       !isPositiveSafeInteger(raw.id) ||
-      !isSafeInteger(raw.rep) ||
-      !isSafeInteger(raw.stars) ||
-      (raw.family !== null && typeof raw.family !== "string")
+      !isSignedInt32(raw.rep) ||
+      !isSignedInt32(raw.stars) ||
+      (raw.family !== null &&
+        (typeof raw.family !== "string" || !isNulFree(raw.family)))
     ) {
       return null;
     }
@@ -80,9 +102,10 @@ export function decodeRepoCursor(cursor: string): RepoCursorPayload | null {
     if (
       raw.v !== 1 ||
       !isPositiveSafeInteger(raw.id) ||
-      !isSafeInteger(raw.rep) ||
-      !isSafeInteger(raw.stars) ||
-      typeof raw.name !== "string"
+      !isSignedInt32(raw.rep) ||
+      !isSignedInt32(raw.stars) ||
+      typeof raw.name !== "string" ||
+      !isNulFree(raw.name)
     ) {
       return null;
     }

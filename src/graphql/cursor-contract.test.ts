@@ -174,6 +174,71 @@ describe("font cursor contract", () => {
     }
   });
 
+  it("accepts only signed PostgreSQL INT sort keys and NUL-free text keys", () => {
+    assert.deepEqual(
+      decodeFontCursor(
+        encodeRaw(
+          JSON.stringify({
+            v: 2,
+            rep: -2_147_483_648,
+            stars: 2_147_483_647,
+            family: "Alpha",
+            id: 2_147_483_648,
+          }),
+        ),
+      ),
+      {
+        v: 2,
+        rep: -2_147_483_648,
+        stars: 2_147_483_647,
+        family: "Alpha",
+        id: 2_147_483_648,
+      },
+    );
+    assert.deepEqual(
+      decodeRepoCursor(
+        encodeRaw(
+          JSON.stringify({
+            v: 1,
+            rep: 2_147_483_647,
+            stars: -2_147_483_648,
+            name: "owner/repo",
+            id: 2_147_483_648,
+          }),
+        ),
+      ),
+      {
+        v: 1,
+        rep: 2_147_483_647,
+        stars: -2_147_483_648,
+        name: "owner/repo",
+        id: 2_147_483_648,
+      },
+    );
+
+    for (const payload of [
+      { v: 2, rep: -2_147_483_649, stars: 0, family: "Alpha", id: 1 },
+      { v: 2, rep: 0, stars: 2_147_483_648, family: "Alpha", id: 1 },
+      { v: 2, rep: 0, stars: 0, family: "Al\0pha", id: 1 },
+    ]) {
+      assert.equal(
+        decodeFontCursor(encodeRaw(JSON.stringify(payload))),
+        null,
+      );
+    }
+
+    for (const payload of [
+      { v: 1, rep: 2_147_483_648, stars: 0, name: "owner/repo", id: 1 },
+      { v: 1, rep: 0, stars: -2_147_483_649, name: "owner/repo", id: 1 },
+      { v: 1, rep: 0, stars: 0, name: "owner/\0repo", id: 1 },
+    ]) {
+      assert.equal(
+        decodeRepoCursor(encodeRaw(JSON.stringify(payload))),
+        null,
+      );
+    }
+  });
+
   it("traverses null, empty, duplicate, and mixed families exactly once", () => {
     const fixtures = [
       { family: null, id: 101 },

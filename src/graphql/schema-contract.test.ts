@@ -34,6 +34,7 @@ describe("GraphQL schema contract", () => {
       "fontFiles: Int!",
       "cdnUrl: String!",
       "isVariable: Boolean!",
+      "licenseSpdx: String!",
     ]) {
       assert.match(sdl, new RegExp(`\\b${escapeRegExp(requiredField)}`));
     }
@@ -44,7 +45,6 @@ describe("GraphQL schema contract", () => {
       "familyGuess: String",
       "weightGuess: Int",
       "styleGuess: String",
-      "licenseSpdx: String",
       "ownerUrl: String",
       "description: String",
     ]) {
@@ -100,11 +100,11 @@ describe("GraphQL schema contract", () => {
         ownerLogin: "String!",
         fullName: "String!",
         defaultBranch: "String!",
-        fontFileId: "Int!",
-        repoId: "Int!",
+        fontFileId: "PositiveSafeInt!",
+        repoId: "PositiveSafeInt!",
         repoName: "String!",
         repoUrl: "String!",
-        licenseSpdx: "String",
+        licenseSpdx: "String!",
         ownerType: "String!",
         ownerUrl: "String",
       },
@@ -123,7 +123,7 @@ describe("GraphQL schema contract", () => {
         htmlUrl: "String!",
         stars: "Int!",
         reputation: "Int!",
-        licenseSpdx: "String",
+        licenseSpdx: "String!",
         defaultBranch: "String!",
         ownerLogin: "String!",
         fontCount: "Int!",
