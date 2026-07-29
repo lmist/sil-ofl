@@ -256,7 +256,10 @@ export function useFontCatalogShell() {
 
   const onOwnerChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      send({ type: "SET_FILTER", filter: { owner: e.target.value } });
+      send({
+        type: "SET_FILTER",
+        filter: { owner: e.target.value.trim() },
+      });
     },
     [send],
   );
@@ -298,8 +301,10 @@ export function useFontCatalogShell() {
   }, [send, endCursor]);
 
   const onResetPagination = useCallback(() => {
-    send({ type: "GO_FIRST" });
-  }, [send]);
+    setSelectedFontCache(null);
+    send({ type: "RESET" });
+    specimen.send({ type: "CLEAR" });
+  }, [send, specimen]);
 
   const onClearFilters = useCallback(() => {
     setSelectedFontCache(null);

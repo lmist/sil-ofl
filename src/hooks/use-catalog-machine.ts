@@ -90,6 +90,17 @@ export function useCatalogMachine(options: UseCatalogMachineOptions = {}) {
 
   const [snapshot, sendRaw, actorRef] = useMachine(catalogMachine, { input });
 
+  const syncSnapshotToUrl = useCallback(() => {
+    if (!syncUrl) return;
+
+    const qs = serializeCatalogContext(actorRef.getSnapshot().context);
+    const href = qs ? `${pathname}?${qs}` : pathname;
+    const currentHref = `${window.location.pathname}${window.location.search}`;
+    if (currentHref !== href) {
+      window.history.replaceState(null, "", href);
+    }
+  }, [actorRef, pathname, syncUrl]);
+
   useMountEffect(() => {
     if (!hydrateFromUrl) return;
 
@@ -101,11 +112,20 @@ export function useCatalogMachine(options: UseCatalogMachineOptions = {}) {
       );
       sendRaw({ type: "HYDRATE_FROM_URL", slice });
       onUrlHydrate?.(slice);
+      syncSnapshotToUrl();
     };
 
     window.addEventListener("popstate", hydrateFromLocation);
+    syncSnapshotToUrl();
     return () => {
       window.removeEventListener("popstate", hydrateFromLocation);
+    };
+  });
+
+  useMountEffect(() => {
+    const subscription = actorRef.subscribe(syncSnapshotToUrl);
+    return () => {
+      subscription.unsubscribe();
     };
   });
 

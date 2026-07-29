@@ -57,4 +57,14 @@ describe("repository workspace contract", () => {
       .filter(Boolean);
     assert.deepEqual(included, [".env.local"]);
   });
+
+  it("keeps mount effects symmetric across React reconnects", () => {
+    const source = readFileSync(
+      "src/hooks/use-mount-effect.ts",
+      "utf8",
+    );
+
+    assert.doesNotMatch(source, /useRef|ran\.current/);
+    assert.match(source, /useEffect\(\(\) => effect\(\),\s*\[\]\)/);
+  });
 });

@@ -69,6 +69,20 @@ describe("catalogMachine", () => {
     assert.equal(actor.getSnapshot().context.q, "cha");
   });
 
+  it("commits a visibly normalized search value after debounce", () => {
+    const clock = new SimulatedClock();
+    const { actor } = createTestCatalog({ clock });
+
+    actor.send({ type: "SET_Q", q: "  Source Sans  " });
+    assert.equal(actor.getSnapshot().context.q, "  Source Sans  ");
+
+    clock.increment(CATALOG_Q_DEBOUNCE_MS);
+
+    assert.equal(actor.getSnapshot().value, "ready");
+    assert.equal(actor.getSnapshot().context.q, "Source Sans");
+    assert.equal(toFontsFilter(actor.getSnapshot().context).q, "Source Sans");
+  });
+
   it("resets debounce timer when SET_Q re-enters debouncing_q", () => {
     const clock = new SimulatedClock();
     const { actor } = createTestCatalog({ clock });
@@ -112,6 +126,20 @@ describe("catalogMachine", () => {
     actor.send({ type: "GO_FIRST" });
     assert.equal(actor.getSnapshot().context.after, null);
     assert.deepEqual(actor.getSnapshot().context.cursorStack, []);
+  });
+
+  it("RESET clears pagination and selected identity atomically", async () => {
+    const { actor } = createTestCatalog();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    actor.send({ type: "SELECT_FONT", id: 101 });
+    actor.send({ type: "NEXT_PAGE", endCursor: "c1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    actor.send({ type: "RESET" });
+
+    assert.equal(actor.getSnapshot().context.after, null);
+    assert.deepEqual(actor.getSnapshot().context.cursorStack, []);
+    assert.equal(actor.getSnapshot().context.selectedFontId, null);
   });
 
   it("consumes a forward cursor at most once while the destination is unresolved", async () => {

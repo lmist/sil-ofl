@@ -23,8 +23,14 @@ const SORT_VALUES: readonly FontSort[] = [
   "ID_ASC",
 ] as const;
 
+const FORMAT_VALUES = new Set(["ttf", "otf", "woff", "woff2"]);
+
 function isFontSort(value: string): value is FontSort {
   return (SORT_VALUES as readonly string[]).includes(value);
+}
+
+function normalizeUrlText(value: string | null): string {
+  return value?.trim() ?? "";
 }
 
 export type CatalogUrlSlice = {
@@ -46,12 +52,13 @@ export function parseCatalogSearchParams(
   const after = params.get(CATALOG_URL_KEYS.after);
   const font = params.get(CATALOG_URL_KEYS.font);
   const fontId = parsePositiveSafeInteger(font);
+  const format = normalizeUrlText(params.get(CATALOG_URL_KEYS.format));
 
   return {
-    q: params.get(CATALOG_URL_KEYS.q) ?? "",
+    q: normalizeUrlText(params.get(CATALOG_URL_KEYS.q)),
     filters: {
-      format: params.get(CATALOG_URL_KEYS.format) ?? "",
-      owner: params.get(CATALOG_URL_KEYS.owner) ?? "",
+      format: FORMAT_VALUES.has(format) ? format : "",
+      owner: normalizeUrlText(params.get(CATALOG_URL_KEYS.owner)),
     },
     sort: sort && isFontSort(sort) ? sort : "REPUTATION_DESC",
     after: after == null || after === "" ? null : after,
@@ -67,13 +74,16 @@ export function serializeCatalogContext(
   >,
 ): string {
   const params = new URLSearchParams();
+  const q = ctx.q.trim();
+  const format = ctx.filters.format.trim();
+  const owner = ctx.filters.owner.trim();
 
-  if (ctx.q) params.set(CATALOG_URL_KEYS.q, ctx.q);
-  if (ctx.filters.format) {
-    params.set(CATALOG_URL_KEYS.format, ctx.filters.format);
+  if (q) params.set(CATALOG_URL_KEYS.q, q);
+  if (FORMAT_VALUES.has(format)) {
+    params.set(CATALOG_URL_KEYS.format, format);
   }
-  if (ctx.filters.owner) {
-    params.set(CATALOG_URL_KEYS.owner, ctx.filters.owner);
+  if (owner) {
+    params.set(CATALOG_URL_KEYS.owner, owner);
   }
   if (ctx.after) params.set(CATALOG_URL_KEYS.after, ctx.after);
   if (ctx.sort && ctx.sort !== "REPUTATION_DESC") {

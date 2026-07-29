@@ -603,12 +603,64 @@ test.describe("catalog state invariants", () => {
     await expect(alert).not.toContainText("query Fonts");
     await expect(alert).not.toContainText("not-a-cursor");
 
-    await alert.getByRole("button", { name: "Reset" }).click();
+    const reset = alert.getByRole("button", { name: "Reset" });
+    await reset.focus();
+    await reset.press("Enter");
     await expect
       .poll(() => new URL(page.url()).searchParams.get("after"))
       .toBeNull();
     await expect(alert).toHaveCount(0);
     await expect(page.locator(ROW).first()).toBeVisible();
+  });
+
+  test("Reset clears cursor and selected identity atomically", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await installInstantFontFace(page);
+    await mockGraphql();
+    await installInvalidCursorFailure(page);
+    await page.goto("/?after=not-a-cursor&font=101");
+
+    const alert = page.locator("[data-catalog-error]");
+    await expect(alert).toBeVisible();
+    await expect(page.locator("[data-font-use-panel]")).toBeVisible();
+
+    const reset = alert.getByRole("button", { name: "Reset" });
+    await reset.focus();
+    await reset.press("Enter");
+
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("after"))
+      .toBeNull();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("font"))
+      .toBeNull();
+    await expect(page.locator("[data-font-use-panel]")).toHaveCount(0);
+    await expect(page.locator("[data-font-specimen]")).toContainText(
+      "Select a face",
+    );
+  });
+
+  test("invalid closed URL values are canonicalized without hidden state", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await mockGraphql();
+    await page.goto(
+      "/?q=%20%20Inter%20%20&owner=%20%20rsms%20%20&format=png&sort=POPULAR&font=01",
+    );
+    await expect(page.locator("[data-catalog-shell]")).toBeVisible();
+
+    await expect(page.getByLabel("Search fonts")).toHaveValue("Inter");
+    await expect(
+      page.getByRole("textbox", { name: "Owner" }),
+    ).toHaveValue("rsms");
+    await expect(page.getByLabel("Format", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Sort")).toHaveValue("REPUTATION_DESC");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.toString())
+      .toBe("q=Inter&owner=rsms");
   });
 
   test("dense Stars ascending remains representable in the main sort select", async ({

@@ -129,4 +129,35 @@ describe("catalog-url", () => {
       );
     }
   });
+
+  it("normalizes text and rejects unsupported closed URL values", () => {
+    const slice = parseCatalogSearchParams(
+      new URLSearchParams({
+        q: "  Source Sans  ",
+        owner: "  adobe-fonts  ",
+        format: "png",
+        sort: "POPULAR",
+      }),
+    );
+
+    assert.equal(slice.q, "Source Sans");
+    assert.equal(slice.filters.owner, "adobe-fonts");
+    assert.equal(slice.filters.format, "");
+    assert.equal(slice.sort, "REPUTATION_DESC");
+  });
+
+  it("serializes normalized text only", () => {
+    const query = serializeCatalogContext({
+      q: "  Source Sans  ",
+      filters: {
+        ...defaultCatalogFilters,
+        owner: "  adobe-fonts  ",
+      },
+      sort: "REPUTATION_DESC",
+      after: null,
+      selectedFontId: null,
+    });
+
+    assert.equal(query, "q=Source+Sans&owner=adobe-fonts");
+  });
 });

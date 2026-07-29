@@ -65,6 +65,7 @@ export type CatalogEvent =
   | { type: "NEXT_PAGE"; endCursor: string }
   | { type: "PREV_PAGE" }
   | { type: "GO_FIRST" }
+  | { type: "RESET" }
   | { type: "SELECT_FONT"; id: number }
   | { type: "DESELECT" }
   | { type: "HYDRATE_FROM_URL"; slice: Partial<CatalogUrlSlice> }
@@ -242,7 +243,12 @@ export const catalogMachine = setup({
     debouncing_q: {
       entry: assign({ isLoading: false }),
       after: {
-        qDebounce: { target: "ready" },
+        qDebounce: {
+          target: "ready",
+          actions: assign(({ context }) => ({
+            q: context.q.trim(),
+          })),
+        },
       },
       on: {
         SET_Q: {
@@ -293,6 +299,15 @@ export const catalogMachine = setup({
             q: "",
             filters: { ...defaultCatalogFilters },
             sort: "REPUTATION_DESC" as FontSort,
+            ...resetPagination(),
+            selectedFontId: null,
+            error: null,
+            isLoading: true,
+          })),
+        },
+        RESET: {
+          target: "ready",
+          actions: assign(() => ({
             ...resetPagination(),
             selectedFontId: null,
             error: null,
@@ -452,6 +467,16 @@ export const catalogMachine = setup({
           reenter: true,
           actions: assign(() => ({
             ...resetPagination(),
+            error: null,
+            isLoading: true,
+          })),
+        },
+        RESET: {
+          target: "ready",
+          reenter: true,
+          actions: assign(() => ({
+            ...resetPagination(),
+            selectedFontId: null,
             error: null,
             isLoading: true,
           })),
