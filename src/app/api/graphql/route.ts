@@ -42,35 +42,90 @@ const CACHEABLE_ROOT_FIELDS = new Set([
 const LONG_CACHE_ROOT_FIELDS = new Set(["health", "stats"]);
 const EXPENSIVE_ROOT_FIELDS = new Set(["fonts", "repos"]);
 
-function externalRequestOrigin(request: Request): string | null {
-  const url = new URL(request.url);
-  const host = request.headers.get("Host");
-  if (!host) return url.origin;
+function httpOrigin(value: string | undefined): string | null {
+  if (!value) return null;
 
   try {
-    const forwardedProtocol = request.headers
-      .get("X-Forwarded-Proto")
-      ?.split(",")[0]
-      ?.trim();
-    const protocol =
-      forwardedProtocol === "http" || forwardedProtocol === "https"
-        ? `${forwardedProtocol}:`
-        : url.protocol;
-    return new URL(`${protocol}//${host}`).origin;
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
   } catch {
     return null;
   }
+}
+
+function serializedHttpOrigin(value: string): string | null {
+  const candidate = value.trim();
+  const origin = httpOrigin(candidate);
+  return origin === candidate ? origin : null;
+}
+
+function addConfiguredOrigin(
+  origins: Set<string>,
+  value: string | undefined,
+): void {
+  const origin = httpOrigin(value);
+  if (origin) origins.add(origin);
+}
+
+function addVercelOrigin(
+  origins: Set<string>,
+  value: string | undefined,
+): void {
+  if (!value) return;
+  addConfiguredOrigin(
+    origins,
+    value.includes("://") ? value : `https://${value}`,
+  );
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  const hostname = new URL(origin).hostname;
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]"
+  );
+}
+
+function trustedCorsOrigins(request: Request): Set<string> {
+  const origins = new Set<string>();
+
+  addConfiguredOrigin(origins, process.env.NEXT_PUBLIC_APP_URL);
+  for (const value of (process.env.GRAPHQL_ALLOWED_ORIGINS ?? "").split(",")) {
+    const origin = serializedHttpOrigin(value);
+    if (origin) origins.add(origin);
+  }
+  addVercelOrigin(origins, process.env.VERCEL_URL);
+  addVercelOrigin(origins, process.env.VERCEL_BRANCH_URL);
+  addVercelOrigin(origins, process.env.VERCEL_PROJECT_PRODUCTION_URL);
+
+  const requestOrigin = httpOrigin(request.url);
+  if (
+    requestOrigin &&
+    process.env.NODE_ENV !== "production" &&
+    isLoopbackOrigin(requestOrigin)
+  ) {
+    const url = new URL(requestOrigin);
+    const port = url.port ? `:${url.port}` : "";
+    origins.add(`${url.protocol}//localhost${port}`);
+    origins.add(`${url.protocol}//127.0.0.1${port}`);
+    origins.add(`${url.protocol}//[::1]${port}`);
+  }
+
+  return origins;
 }
 
 function hasAllowedOrigin(request: Request): boolean {
   const origin = request.headers.get("Origin");
   if (origin === null) return true;
 
-  try {
-    return new URL(origin).origin === origin && origin === externalRequestOrigin(request);
-  } catch {
-    return false;
-  }
+  const serializedOrigin = serializedHttpOrigin(origin);
+  return (
+    serializedOrigin !== null &&
+    trustedCorsOrigins(request).has(serializedOrigin)
+  );
 }
 
 function appendVary(headers: Headers, ...tokens: readonly string[]): void {
@@ -135,6 +190,21 @@ function graphqlErrorResponse(
     },
     { status, headers },
   );
+}
+
+function hasValidGetVariables(searchParams: URLSearchParams): boolean {
+  const source = searchParams.get("variables");
+  if (source === null || source === "") return true;
+
+  try {
+    const variables: unknown = JSON.parse(source);
+    return (
+      variables === null ||
+      (typeof variables === "object" && !Array.isArray(variables))
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function boundedPostRequest(request: Request): Promise<Request | null> {
@@ -469,6 +539,13 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.search.length > MAX_GRAPHQL_REQUEST_BYTES) {
     return graphqlErrorResponse(request, 413, "GraphQL request is too large.");
+  }
+  if (!hasValidGetVariables(url.searchParams)) {
+    return graphqlErrorResponse(
+      request,
+      400,
+      "GraphQL variables must be a JSON object or null.",
+    );
   }
   // In production GraphiQL is off; GET still serves GraphQL-over-HTTP queries.
   return handle(request);

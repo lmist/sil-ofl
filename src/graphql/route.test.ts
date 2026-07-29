@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { Kind, parse, print, visit } from "graphql";
 import { GET, OPTIONS, POST } from "@/app/api/graphql/route";
 import {
@@ -12,6 +12,19 @@ import {
 } from "./documents";
 
 const endpoint = "https://fonts.example/api/graphql";
+const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+
+before(() => {
+  process.env.NEXT_PUBLIC_APP_URL = "https://fonts.example";
+});
+
+after(() => {
+  if (appUrl === undefined) {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+  } else {
+    process.env.NEXT_PUBLIC_APP_URL = appUrl;
+  }
+});
 
 function request(
   url: string,
@@ -97,6 +110,73 @@ describe("GraphQL HTTP policy", () => {
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
   });
 
+  it("does not trust spoofed forwarding headers on GraphQL GET requests", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    const response = await GET(
+      request(`${endpoint}?query=${query}`, {
+        headers: {
+          Host: "attacker.example",
+          Origin: "https://attacker.example",
+          "X-Forwarded-Proto": "https",
+        },
+      }),
+    );
+
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), null);
+    assert.equal(response.headers.get("Access-Control-Allow-Credentials"), null);
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+    assert.deepEqual(
+      headerTokens(response.headers.get("Vary")),
+      new Set([
+        "origin",
+        "access-control-request-method",
+        "access-control-request-headers",
+      ]),
+    );
+  });
+
+  it("does not trust spoofed forwarding headers on CORS preflights", async () => {
+    const response = await OPTIONS(
+      request(endpoint, {
+        method: "OPTIONS",
+        headers: {
+          Host: "attacker.example",
+          Origin: "https://attacker.example",
+          "X-Forwarded-Proto": "https",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "content-type",
+        },
+      }),
+    );
+
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), null);
+    assert.equal(response.headers.get("Access-Control-Allow-Credentials"), null);
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+    assert.deepEqual(
+      headerTokens(response.headers.get("Vary")),
+      new Set([
+        "origin",
+        "access-control-request-method",
+        "access-control-request-headers",
+      ]),
+    );
+  });
+
+  it("does not trust an unconfigured request URL as a deployment origin", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    const response = await GET(
+      request(`https://unconfigured.example/api/graphql?query=${query}`, {
+        headers: { Origin: "https://unconfigured.example" },
+      }),
+    );
+
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), null);
+    assert.equal(response.headers.get("Access-Control-Allow-Credentials"), null);
+  });
+
   it("rejects non-serialized same-origin values", async () => {
     const query = encodeURIComponent("{ health { ok } }");
     const malformedOrigins = [
@@ -117,12 +197,11 @@ describe("GraphQL HTTP policy", () => {
     }
   });
 
-  it("uses the externally visible Host for same-origin checks", async () => {
+  it("accepts the configured local development origin aliases", async () => {
     const query = encodeURIComponent("{ health { ok } }");
     const response = await GET(
       request(`http://localhost:3000/api/graphql?query=${query}`, {
         headers: {
-          Host: "127.0.0.1:3000",
           Origin: "http://127.0.0.1:3000",
         },
       }),
@@ -172,6 +251,50 @@ describe("GraphQL HTTP policy", () => {
       ]),
     );
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  });
+
+  it("accepts canonical and explicitly allowlisted deployment origins", async () => {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    const allowedOrigins = process.env.GRAPHQL_ALLOWED_ORIGINS;
+    process.env.NEXT_PUBLIC_APP_URL = "https://canonical.example/catalog";
+    process.env.GRAPHQL_ALLOWED_ORIGINS =
+      "https://preview.example, https://partner.example";
+
+    try {
+      const query = encodeURIComponent("{ health { ok } }");
+      for (const origin of [
+        "https://canonical.example",
+        "https://preview.example",
+        "https://partner.example",
+      ]) {
+        const response = await GET(
+          request(`${endpoint}?query=${query}`, {
+            headers: { Origin: origin },
+          }),
+        );
+
+        assert.equal(response.status, 200, origin);
+        assert.equal(
+          response.headers.get("Access-Control-Allow-Origin"),
+          origin,
+        );
+        assert.equal(
+          response.headers.get("Access-Control-Allow-Credentials"),
+          "true",
+        );
+      }
+    } finally {
+      if (appUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_APP_URL;
+      } else {
+        process.env.NEXT_PUBLIC_APP_URL = appUrl;
+      }
+      if (allowedOrigins === undefined) {
+        delete process.env.GRAPHQL_ALLOWED_ORIGINS;
+      } else {
+        process.env.GRAPHQL_ALLOWED_ORIGINS = allowedOrigins;
+      }
+    }
   });
 
   it("rejects unsupported CORS preflight methods", async () => {
@@ -242,6 +365,69 @@ describe("GraphQL HTTP policy", () => {
 
     assert.ok(result.errors?.length);
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  });
+
+  it("accepts omitted, empty, null, and object GET variables", async () => {
+    for (const variables of [
+      undefined,
+      "",
+      "null",
+      JSON.stringify({ unused: 1 }),
+    ]) {
+      const params = new URLSearchParams({
+        query: "{ health { ok } }",
+      });
+      if (variables !== undefined) params.set("variables", variables);
+
+      const response = await GET(request(`${endpoint}?${params}`));
+      const result = (await response.json()) as {
+        data?: { health?: { ok?: boolean } };
+      };
+
+      assert.equal(response.status, 200, variables);
+      assert.equal(result.data?.health?.ok, true, variables);
+    }
+  });
+
+  it("rejects malformed and non-object GET variables before database work", async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+
+    try {
+      const invalidVariables = [
+        '{"id":',
+        "[]",
+        JSON.stringify("1"),
+        "1",
+        "true",
+      ];
+      for (const variables of invalidVariables) {
+        const params = new URLSearchParams({
+          query: 'query Font($id: ID! = "1") { font(id: $id) { id } }',
+          variables,
+        });
+        const response = await GET(request(`${endpoint}?${params}`));
+        const result = (await response.json()) as {
+          errors?: Array<{ message?: string; extensions?: unknown }>;
+        };
+
+        assert.equal(response.status, 400, variables);
+        assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+        assert.deepEqual(result, {
+          errors: [
+            {
+              message: "GraphQL variables must be a JSON object or null.",
+            },
+          ],
+        });
+      }
+    } finally {
+      if (databaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = databaseUrl;
+      }
+    }
   });
 
   it("derives cache safety from the parsed selected operation", async () => {
