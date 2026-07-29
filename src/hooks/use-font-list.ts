@@ -77,9 +77,16 @@ export function useFontList() {
   const specimenText = shell.specimenText;
   const getRowInteractionProps = shell.getRowInteractionProps;
   const edges = shell.edges;
-  const pageOffset =
-    shell.catalog.context.cursorStack.length *
-    shell.catalog.context.pageSize;
+  const cursorDepth = shell.catalog.context.cursorStack.length;
+  const pageOffset = shell.isPlaceholderData
+    ? null
+    : shell.catalog.context.after == null
+      ? 0
+      : cursorDepth === 0
+        ? null
+        : shell.hasNext
+          ? cursorDepth * count
+          : Math.max(shell.totalCount - count, 0);
   const setSize = shell.totalCount;
 
   const rows = useMemo(() => {
@@ -104,7 +111,8 @@ export function useFontList() {
 
       return {
         key: edge.node.fontFileId,
-        ariaPosInSet: pageOffset + vItem.index + 1,
+        ariaPosInSet:
+          pageOffset == null ? undefined : pageOffset + vItem.index + 1,
         ariaSetSize: setSize,
         wrapperStyle: {
           position: "absolute" as const,

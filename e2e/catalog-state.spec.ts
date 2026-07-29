@@ -663,6 +663,71 @@ test.describe("catalog state invariants", () => {
       .toBe("q=Inter&owner=rsms");
   });
 
+  test("typed whitespace never diverges between controls, URL, and GraphQL", async ({
+    page,
+    mockGraphql,
+  }) => {
+    const filters: Array<{
+      q?: string | null;
+      owner?: string | null;
+    }> = [];
+    await mockGraphql();
+    await page.route("**/api/graphql**", async (route) => {
+      const body = route.request().postDataJSON() as {
+        query?: string;
+        variables?: {
+          filter?: {
+            q?: string | null;
+            owner?: string | null;
+          } | null;
+        };
+      };
+      if (/\bquery\s+Fonts\b/.test(body.query ?? "")) {
+        filters.push(body.variables?.filter ?? {});
+      }
+      await route.fallback();
+    });
+    await page.goto("/");
+    await expect(page.locator(ROW).first()).toBeVisible();
+
+    const search = page.getByRole("searchbox", {
+      name: "Search fonts",
+    });
+    const owner = page.getByRole("textbox", { name: "Owner" });
+
+    await search.fill("  Inter  ");
+    await expect(search).toHaveValue("Inter");
+    await owner.fill("  rsms  ");
+    await expect(owner).toHaveValue("rsms");
+
+    await expect
+      .poll(() =>
+        filters.some(
+          (filter) =>
+            filter.q === "Inter" && filter.owner === "rsms",
+        ),
+      )
+      .toBe(true);
+    expect(
+      filters.every(
+        (filter) =>
+          filter.q == null ||
+          filter.q === filter.q.trim(),
+      ),
+    ).toBe(true);
+    expect(
+      filters.every(
+        (filter) =>
+          filter.owner == null ||
+          filter.owner === filter.owner.trim(),
+      ),
+    ).toBe(true);
+
+    await expect
+      .poll(() => new URL(page.url()).searchParams.toString())
+      .toBe("q=Inter&owner=rsms");
+  });
+
   test("dense Stars ascending remains representable in the main sort select", async ({
     page,
     mockGraphql,

@@ -330,6 +330,12 @@ test.describe("catalog accessibility and responsive layout", () => {
       .withRules(["aria-allowed-attr", "aria-allowed-role"])
       .analyze();
     expect(results.violations.map(({ id }) => id)).toEqual([]);
+
+    await page.getByRole("button", { name: "Next page" }).click();
+    await expect(listItems.nth(0)).toHaveAttribute("aria-posinset", "4");
+    await expect(listItems.nth(1)).toHaveAttribute("aria-posinset", "5");
+    await expect(listItems.nth(2)).toHaveAttribute("aria-posinset", "6");
+    await expect(listItems.first()).toHaveAttribute("aria-setsize", "6");
   });
 
   test("dense table keeps structural cells and native selection controls", async ({
