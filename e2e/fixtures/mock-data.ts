@@ -40,7 +40,6 @@ function font(
     Partial<MockFontNode>,
 ): MockFontNode {
   const id = String(partial.fontFileId);
-  const family = partial.familyGuess ?? partial.fileName;
   return {
     id,
     cdnUrl: MOCK_INTER_CDN,

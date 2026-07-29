@@ -22,7 +22,7 @@ Next.js App Router Route Handler
   ▼  @neondatabase/serverless (DATABASE_URL)
 Neon Postgres
   │
-  ├─ v_renderable_fonts        → join font_files × repos × owners
+  ├─ font_files × repos × owners → joined directly by GraphQL resolvers
   ├─ pg_trgm indexes           → ILIKE / FTS-style family & name search
   └─ cdn_url (jsDelivr)        → preferred @font-face source
 ```
@@ -30,13 +30,13 @@ Neon Postgres
 **Data flow in prose**
 
 1. Catalog UI events update an **XState** machine (query string, format,
-   pagination offset, selected font). Components stay headless — no business
+   pagination cursor, selected font). Components stay headless — no business
    logic in JSX.
 2. Hooks map machine context → **TanStack Query** keys and call
    **graphql-request** against `/api/graphql`.
 3. **GraphQL Yoga** serves the Pothos schema; resolvers query Neon via the
-   serverless HTTP driver against `v_renderable_fonts` and related tables
-   (trigram indexes for search).
+   serverless HTTP driver, joining `font_files`, `repos`, and `owners` directly
+   (with trigram indexes for search).
 4. Specimen rows load `cdnUrl` into `@font-face` (jsDelivr); `rawUrl` is a
    fallback. Images/font hosts are allow-listed in `next.config.ts`.
 
@@ -78,10 +78,11 @@ src/
 cp .env.example .env.local
 # set DATABASE_URL to your Neon pooled connection string
 
-npm install
-npm run dev      # Turbopack
-npm run build
-npm run lint
+bun install --frozen-lockfile
+bun run dev      # Turbopack
+bun run build
+bun run lint
+bun run verify   # lint, types, unit tests, build, and mocked browser E2E
 ```
 
 GraphiQL (non-production): [http://localhost:3000/api/graphql](http://localhost:3000/api/graphql)
@@ -91,9 +92,12 @@ GraphiQL (non-production): [http://localhost:3000/api/graphql](http://localhost:
 ```graphql
 query {
   stats { repos fontFiles owners reposWithFiles }
-  fonts(q: "charis", limit: 10) {
-    count
-    nodes { familyGuess fileName cdnUrl stars fullName }
+  fonts(filter: { q: "charis" }, first: 10) {
+    totalCount
+    pageInfo { hasNextPage endCursor }
+    edges {
+      node { familyGuess fileName cdnUrl stars fullName }
+    }
   }
 }
 ```

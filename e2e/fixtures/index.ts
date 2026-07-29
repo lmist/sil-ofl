@@ -24,13 +24,13 @@ export type CatalogFixtures = {
  * ```
  */
 export const test = base.extend<CatalogFixtures>({
-  mockGraphql: async ({ page }, use) => {
-    await use(async (options = {}) => {
-      if (options.live) {
+  mockGraphql: async ({ page }, provide) => {
+    await provide(async (options = {}) => {
+      const { live = false, ...mockOptions } = options;
+      if (live) {
         return { mocked: false };
       }
-      const { live: _live, ...mockOpts } = options;
-      await installGraphqlMock(page, mockOpts);
+      await installGraphqlMock(page, mockOptions);
       return { mocked: true };
     });
   },

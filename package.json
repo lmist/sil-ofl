@@ -9,10 +9,12 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "bun scripts/run-tests.ts",
     "test:machines": "tsx --test src/machines/**/*.test.ts",
     "test:e2e": "playwright test",
+    "test:e2e:isolated": "E2E_PORT=$((${CONDUCTOR_PORT:-2999} + 1)); PORT=\"$E2E_PORT\" PLAYWRIGHT_BASE_URL=\"http://localhost:$E2E_PORT\" bun run test:e2e",
     "test:e2e:ui": "playwright test --ui",
+    "verify": "bun run lint && bun run typecheck && bun run test && bun run build && bun run test:e2e:isolated",
     "analyze": "next experimental-analyze",
     "analyze:output": "next experimental-analyze --output"
   },

@@ -15,7 +15,7 @@ command = "bun run test"
 icon = "test-tube"
 
 [scripts.run.e2e]
-command = "E2E_PORT=$((CONDUCTOR_PORT + 1)); PORT=\"$E2E_PORT\" PLAYWRIGHT_BASE_URL=\"http://localhost:$E2E_PORT\" bun run test:e2e"
+command = "bun run test:e2e:isolated"
 icon = "monitor"
 available_in = ["local"]
 
@@ -24,7 +24,7 @@ command = "bun run typecheck"
 icon = "check"
 
 [scripts.run.verify]
-command = "bun run lint && bun run typecheck && bun run test && bun run build"
+command = "bun run verify"
 icon = "shield-check"
 
 [prompts]

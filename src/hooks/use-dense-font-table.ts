@@ -108,6 +108,8 @@ export function useDenseFontTable() {
     [],
   );
 
+  // TanStack Table deliberately returns callable APIs that React Compiler skips.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
