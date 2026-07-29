@@ -293,6 +293,83 @@ test.describe("specimen and export regressions", () => {
     });
   }
 
+  test("delayed fallback preserves focus moved to another copy control", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await forceDeferredClipboard(page);
+    await openCatalog(page, mockGraphql);
+    await page.locator("[data-font-row]").first().click();
+
+    const copyCdn = page.getByRole("button", { name: "Copy CDN URL" });
+    const copyCss = page.getByRole("button", {
+      name: "Copy CSS @font-face",
+    });
+    await copyCdn.click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__deferredClipboardHarness.calls.length,
+        ),
+      )
+      .toBe(1);
+    await copyCss.focus();
+    await expect(copyCss).toBeFocused();
+
+    await page.evaluate(() => {
+      window.__deferredClipboardHarness.settle(0, "reject");
+    });
+
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__deferredClipboardHarness.fallbackTexts.length,
+        ),
+      )
+      .toBe(1);
+    await expect(copyCss).toBeFocused();
+  });
+
+  test("delayed fallback restores connected focus after its initiator disconnects", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await forceDeferredClipboard(page);
+    await openCatalog(page, mockGraphql);
+    await page.locator("[data-font-row]").first().click();
+
+    const copyCdn = page.getByRole("button", { name: "Copy CDN URL" });
+    await copyCdn.click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__deferredClipboardHarness.calls.length,
+        ),
+      )
+      .toBe(1);
+
+    const search = page.getByRole("searchbox", { name: "Search fonts" });
+    await search.fill("no-font-can-match-this-query");
+    await expect(copyCdn).toHaveCount(0);
+    await expect(search).toBeFocused();
+
+    await page.evaluate(() => {
+      window.__deferredClipboardHarness.settle(0, "reject");
+    });
+
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__deferredClipboardHarness.fallbackTexts.length,
+        ),
+      )
+      .toBe(1);
+    await expect(search).toBeFocused();
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.tagName))
+      .not.toBe("BODY");
+  });
+
   for (const olderOutcome of ["reject", "resolve"] as const) {
     test(`latest initiated copy wins when the older native write completes with ${olderOutcome}`, async ({
       page,

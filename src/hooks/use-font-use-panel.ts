@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
 import { useFontCatalogShellContext } from "@/hooks/use-font-catalog-shell";
 import { buildFontUseSnippets } from "@/lib/font-use-snippets";
 
@@ -43,7 +42,6 @@ export function useFontUsePanel() {
       kind: UseSnippetKind,
       text: string,
       selectedFontId: number,
-      initiatingControl: HTMLButtonElement,
     ) => {
       const token = ++copyToken.current;
       setFeedback(null);
@@ -68,6 +66,11 @@ export function useFontUsePanel() {
           ta.style.position = "fixed";
           ta.style.left = "-9999px";
           document.body.appendChild(ta);
+          const focusOwner =
+            document.activeElement instanceof HTMLElement &&
+            document.activeElement.isConnected
+              ? document.activeElement
+              : null;
           ta.select();
           try {
             confirmed = document.execCommand("copy") === true;
@@ -75,8 +78,8 @@ export function useFontUsePanel() {
             confirmed = false;
           } finally {
             document.body.removeChild(ta);
-            if (initiatingControl.isConnected) {
-              initiatingControl.focus({ preventScroll: true });
+            if (focusOwner?.isConnected) {
+              focusOwner.focus({ preventScroll: true });
             }
           }
         }
@@ -124,9 +127,9 @@ export function useFontUsePanel() {
       ({
         type: "button" as const,
         disabled: !snippets?.css,
-        onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
+        onClick: () => {
           if (snippets?.css && fontId != null) {
-            void copyText("css", snippets.css, fontId, event.currentTarget);
+            void copyText("css", snippets.css, fontId);
           }
         },
         "aria-label": "Copy CSS @font-face",
@@ -139,9 +142,9 @@ export function useFontUsePanel() {
       ({
         type: "button" as const,
         disabled: !snippets?.html,
-        onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
+        onClick: () => {
           if (snippets?.html && fontId != null) {
-            void copyText("html", snippets.html, fontId, event.currentTarget);
+            void copyText("html", snippets.html, fontId);
           }
         },
         "aria-label": "Copy HTML starter page",
@@ -154,9 +157,9 @@ export function useFontUsePanel() {
       ({
         type: "button" as const,
         disabled: !snippets?.react,
-        onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
+        onClick: () => {
           if (snippets?.react && fontId != null) {
-            void copyText("react", snippets.react, fontId, event.currentTarget);
+            void copyText("react", snippets.react, fontId);
           }
         },
         "aria-label": "Copy React / CSS usage",
@@ -169,9 +172,9 @@ export function useFontUsePanel() {
       ({
         type: "button" as const,
         disabled: !snippets?.cdnUrl,
-        onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
+        onClick: () => {
           if (snippets?.cdnUrl && fontId != null) {
-            void copyText("cdn", snippets.cdnUrl, fontId, event.currentTarget);
+            void copyText("cdn", snippets.cdnUrl, fontId);
           }
         },
         "aria-label": "Copy CDN URL",
@@ -184,9 +187,9 @@ export function useFontUsePanel() {
       ({
         type: "button" as const,
         disabled: !snippets?.rawUrl,
-        onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
+        onClick: () => {
           if (snippets?.rawUrl && fontId != null) {
-            void copyText("raw", snippets.rawUrl, fontId, event.currentTarget);
+            void copyText("raw", snippets.rawUrl, fontId);
           }
         },
         "aria-label": "Copy raw GitHub URL",
