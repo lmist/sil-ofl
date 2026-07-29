@@ -94,6 +94,12 @@ status for every defect.
 | `silofl-pzs.33` | copied artifacts do not escape hostile font metadata | adversarial family/repository names | target-specific escaping and parser checks |
 | `silofl-pzs.34` | clipboard fallback loses keyboard focus | denied Clipboard API with textarea fallback | focus restoration on every fallback outcome |
 | `silofl-pzs.35` | browser Back/Forward leaves machine state stale | same-route history across query/selection states | popstate convergence without navigation loops |
+| `silofl-pzs.36` | approved-origin paths can terminate copied CSS URLs | CSS-significant path characters on jsDelivr | context-escaped URL values in every artifact |
+| `silofl-pzs.37` | generic family names select the wrong React face | literal family `serif` with fallbacks | quoted selected-family identity |
+| `silofl-pzs.38` | superseded copy attempts can overwrite the newest payload | reversed Clipboard promise completion | latest-attempt clipboard ownership |
+| `silofl-pzs.39` | missing deep-linked fonts remain claimed by the URL | null/hidden Font detail lookup | safe canonical deselection |
+| `silofl-pzs.40` | opaque deep cursors receive invented page numbers | later-page cursor without local history | truthful unknown-position labeling |
+| `silofl-pzs.41` | database bigint IDs overflow GraphQL Int output | IDs above signed Int32 | explicit positive-safe ID scalar contract |
 
 ## Final verification
 
