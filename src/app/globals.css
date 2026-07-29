@@ -113,3 +113,13 @@ select option {
   background-color: #000;
   color: #fff;
 }
+
+/* Recovery controls retain compact typography with a WCAG-sized hit target. */
+[data-catalog-error] button,
+[data-catalog-error-boundary] button,
+[data-font-specimen] button {
+  display: inline-flex;
+  min-width: 24px;
+  min-height: 24px;
+  align-items: center;
+}

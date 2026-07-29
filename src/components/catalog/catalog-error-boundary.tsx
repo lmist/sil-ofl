@@ -53,7 +53,7 @@ export class CatalogErrorBoundary extends Component<Props, State> {
         <p className="text-foreground">
           Something went wrong rendering the {label}.
         </p>
-        <p className="mt-1 max-w-xl break-words opacity-80">{error.message}</p>
+        <p className="mt-1 max-w-xl break-words">{error.message}</p>
         <button
           type="button"
           onClick={this.onRetry}

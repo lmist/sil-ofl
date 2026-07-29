@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, MOCK_FONTS_PAGE1, test } from "./fixtures";
 
 const CATALOG = "[data-catalog-shell]";
 const DENSE_TABLE = "[data-dense-font-table]";
@@ -90,11 +90,151 @@ async function targetedAriaViolationIds(page: Page): Promise<string[]> {
   return results.violations.map(({ id }) => id);
 }
 
+async function installFontRequestFailure(page: Page): Promise<void> {
+  await page.route("**/api/graphql**", async (route) => {
+    const body = route.request().postDataJSON() as { query?: string };
+    if (!/\bquery\s+Fonts\b/.test(body.query ?? "")) {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        errors: [{ message: "Catalog temporarily unavailable" }],
+      }),
+    });
+  });
+}
+
+async function installFailingFontFace(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    class FailingFontFace {
+      load(): Promise<this> {
+        return Promise.reject(new Error("Font face unavailable"));
+      }
+    }
+
+    Object.defineProperty(window, "FontFace", {
+      configurable: true,
+      value: FailingFontFace,
+    });
+  });
+}
+
+async function installDenseRenderFailure(page: Page): Promise<void> {
+  await page.route("**/api/graphql**", async (route) => {
+    const body = route.request().postDataJSON() as { query?: string };
+    if (!/\bquery\s+Fonts\b/.test(body.query ?? "")) {
+      await route.fallback();
+      return;
+    }
+
+    const malformedNode = {
+      ...MOCK_FONTS_PAGE1[0],
+      stars: null,
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          fonts: {
+            totalCount: 1,
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+            edges: [{ cursor: "malformed-row", node: malformedNode }],
+          },
+        },
+      }),
+    });
+  });
+}
+
+async function installReplacementFailure(
+  page: Page,
+): Promise<() => void> {
+  let shouldFail = true;
+
+  await page.route("**/api/graphql**", async (route) => {
+    const body = route.request().postDataJSON() as {
+      query?: string;
+      variables?: { filter?: { owner?: string | null } | null };
+    };
+    const isReplacement =
+      /\bquery\s+Fonts\b/.test(body.query ?? "") &&
+      body.variables?.filter?.owner === "rsms";
+
+    if (!isReplacement || !shouldFail) {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        errors: [{ message: "Catalog temporarily unavailable" }],
+      }),
+    });
+  });
+
+  return () => {
+    shouldFail = false;
+  };
+}
+
+async function installInvalidCursorFailure(page: Page): Promise<void> {
+  await page.route("**/api/graphql**", async (route) => {
+    const body = route.request().postDataJSON() as {
+      query?: string;
+      variables?: { after?: string | null };
+    };
+    const isInvalidCursor =
+      /\bquery\s+Fonts\b/.test(body.query ?? "") &&
+      body.variables?.after === "not-a-cursor";
+
+    if (!isInvalidCursor) {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        errors: [{ message: "Invalid cursor" }],
+      }),
+    });
+  });
+}
+
 test.describe("catalog accessibility and responsive layout", () => {
-  test("catalog has one descriptive level-one heading", async ({
+  test("loading and loaded catalog states each have one level-one heading", async ({
+    browser,
+    baseURL,
     page,
     mockGraphql,
   }) => {
+    if (!baseURL) throw new Error("Playwright baseURL is required");
+
+    const loadingContext = await browser.newContext({
+      javaScriptEnabled: false,
+    });
+    const loadingPage = await loadingContext.newPage();
+    await loadingPage.goto(baseURL);
+    await expect(loadingPage.locator("[data-catalog-skeleton]")).toBeVisible();
+    await expect(
+      loadingPage.getByRole("heading", {
+        level: 1,
+        name: "SIL OFL Fonts",
+      }),
+    ).toHaveCount(1);
+    await loadingContext.close();
+
     await mockGraphql();
     await page.goto("/");
     await waitForCatalog(page);
@@ -311,6 +451,129 @@ test.describe("catalog accessibility and responsive layout", () => {
     await expect(status).toHaveText("Updating results…");
     await expect(status).toHaveText("1 match");
     await expect(liveRegions).toHaveCount(1);
+  });
+
+  test("catalog errors suppress competing result announcements", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await mockGraphql();
+    await installFontRequestFailure(page);
+    await page.goto("/");
+
+    const catalog = page.locator(CATALOG);
+    const alert = catalog.getByRole("alert");
+    await expect(alert).toBeVisible();
+    await expect(catalog.locator(RESULT_STATUS)).toHaveCount(0);
+    await expect(catalog.locator("[data-filter-chip-strip]")).toHaveCount(0);
+    await expectMinimumTargetSize(
+      alert.getByRole("button", { name: "Retry" }),
+    );
+  });
+
+  test("stale list recovery actions have 24px targets without a result announcement", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await mockGraphql();
+    const recover = await installReplacementFailure(page);
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    await page.getByRole("textbox", { name: "Owner" }).fill("rsms");
+    const alert = page.locator("[data-catalog-error]");
+    await expect(alert).toBeVisible();
+    await expect(page.locator(RESULT_STATUS)).toHaveCount(0);
+    await expect(page.locator("[data-filter-chip-strip]")).toBeVisible();
+    await expectMinimumTargetSize(alert.getByRole("button"));
+
+    recover();
+    await alert.getByRole("button", { name: "Retry" }).click();
+    await expect(alert).toHaveCount(0);
+  });
+
+  test("dense recovery actions have 24px targets", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await mockGraphql();
+    await installReplacementFailure(page);
+    await page.goto("/");
+    await waitForCatalog(page);
+    await page.getByRole("button", { name: "Dense table mode" }).click();
+
+    await page.getByRole("textbox", { name: "Owner" }).fill("rsms");
+    const alert = page.locator("[data-catalog-error]");
+    await expect(alert).toBeVisible();
+    await expectMinimumTargetSize(alert.getByRole("button"));
+  });
+
+  test("cursor reset recovery actions have 24px targets", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await mockGraphql();
+    await installInvalidCursorFailure(page);
+    await page.goto("/?after=not-a-cursor");
+
+    const alert = page.locator("[data-catalog-error]");
+    await expect(alert).toBeVisible();
+    await expect(alert.getByRole("button", { name: "Reset" })).toBeVisible();
+    await expectMinimumTargetSize(alert.getByRole("button"));
+  });
+
+  test("specimen recovery has a 24px target", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await installFailingFontFace(page);
+    await mockGraphql();
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    await page.locator(FONT_ROW).first().click();
+    const specimen = page.locator("[data-font-specimen]");
+    await expect(specimen.getByText(/Specimen error:/)).toBeVisible();
+    await expectMinimumTargetSize(
+      specimen.getByRole("button", { name: "Retry" }),
+    );
+  });
+
+  test("catalog render recovery has a 24px target", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await mockGraphql();
+    await installDenseRenderFailure(page);
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    await page.getByRole("button", { name: "Dense table mode" }).click();
+    const boundary = page.locator("[data-catalog-error-boundary]");
+    await expect(boundary).toBeVisible();
+    await expectMinimumTargetSize(
+      boundary.getByRole("button", { name: "Try again" }),
+    );
+  });
+
+  test("catalog render error copy meets minimum contrast", async ({
+    page,
+    mockGraphql,
+  }) => {
+    await mockGraphql();
+    await installDenseRenderFailure(page);
+    await page.goto("/");
+    await waitForCatalog(page);
+
+    await page.getByRole("button", { name: "Dense table mode" }).click();
+    const boundary = page.locator("[data-catalog-error-boundary]");
+    await expect(boundary).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .include("[data-catalog-error-boundary]")
+      .withRules(["color-contrast"])
+      .analyze();
+    expect(results.violations.map(({ id }) => id)).toEqual([]);
   });
 
   test("compact catalog actions have non-overlapping 24px targets", async ({

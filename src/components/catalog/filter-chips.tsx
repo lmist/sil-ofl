@@ -12,23 +12,28 @@ const chipClass =
 export function FilterChips({ className }: { className?: string }) {
   const bar = useFilterChips();
 
+  if (!bar.hasChips && !bar.showStatus) return null;
+
   return (
     <div
+      data-filter-chip-strip
       className={cn(
         "flex min-w-0 flex-wrap items-center gap-2 border-b border-border px-[var(--gutter)] py-2",
         className,
       )}
     >
-      <span
-        className="mr-1 text-[0.75rem] tabular-nums text-muted-foreground"
-        data-total-count
-        data-catalog-results-status
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {bar.statusText}
-      </span>
+      {bar.showStatus ? (
+        <span
+          className="mr-1 text-[0.75rem] tabular-nums text-muted-foreground"
+          data-total-count
+          data-catalog-results-status
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {bar.statusText}
+        </span>
+      ) : null}
 
       {bar.hasChips ? (
         <ul

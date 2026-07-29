@@ -12,7 +12,13 @@ export function CatalogSkeleton() {
     >
       {/* Header bar — 3rem, title + stats */}
       <header className="flex h-[var(--header-height)] shrink-0 items-center justify-between border-b border-border px-[var(--gutter)]">
-        <div className="h-3 w-24 bg-foreground/[0.08]" />
+        <h1 className="relative h-3 w-24">
+          <span className="sr-only">SIL OFL Fonts</span>
+          <span
+            aria-hidden="true"
+            className="block h-full w-full bg-foreground/[0.08]"
+          />
+        </h1>
         <div className="flex items-center gap-4">
           <div className="h-2.5 w-16 bg-foreground/[0.06]" />
           <div className="h-2.5 w-12 bg-foreground/[0.06]" />

@@ -123,6 +123,7 @@ export function useFilterChips() {
       : shell.connection
         ? `${shell.totalCount.toLocaleString()} match${shell.totalCount === 1 ? "" : "es"}`
         : "Loading fonts…";
+  const showStatus = shell.error == null;
 
   return {
     chips,
@@ -130,6 +131,7 @@ export function useFilterChips() {
     rootProps,
     clearAllProps: shell.clearFiltersProps,
     statusText,
+    showStatus,
   } as const;
 }
 
