@@ -22,7 +22,7 @@ export function StatsStrip({ className }: { className?: string }) {
       </span>
       {stats.items.map((item) => (
         <span key={item.key} className="tabular-nums">
-          <span className="text-muted-foreground/80">{item.label} </span>
+          <span className="text-muted-foreground">{item.label} </span>
           {item.value}
         </span>
       ))}

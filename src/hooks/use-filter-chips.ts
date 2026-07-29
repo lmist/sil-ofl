@@ -114,15 +114,22 @@ export function useFilterChips() {
     [],
   );
 
+  const statusText = shell.isDebouncing
+    ? "Searching…"
+    : shell.isFetching
+      ? shell.connection
+        ? "Updating results…"
+        : "Loading fonts…"
+      : shell.connection
+        ? `${shell.totalCount.toLocaleString()} match${shell.totalCount === 1 ? "" : "es"}`
+        : "Loading fonts…";
+
   return {
     chips,
     hasChips: chips.length > 0,
     rootProps,
     clearAllProps: shell.clearFiltersProps,
-    totalCount: shell.totalCount,
-    showTotal: shell.connection != null,
-    isDebouncing: shell.isDebouncing,
-    isFetching: shell.isFetching,
+    statusText,
   } as const;
 }
 

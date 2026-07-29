@@ -59,85 +59,120 @@ export function DenseFontTable({ className }: { className?: string }) {
     <>
       {errorStatus}
       <div
-        className={cn("w-full overflow-x-auto px-[var(--gutter)] pb-16", className)}
-        data-dense-font-table
+        className={cn(
+          "w-full overflow-x-auto px-[var(--gutter)] pb-16",
+          className,
+        )}
         data-placeholder={t.isPlaceholderData ? "true" : "false"}
-        role="table"
-        aria-label="Font catalog dense"
-        aria-rowcount={t.rows.length}
       >
-        <div role="rowgroup" className="border-b border-border">
-          {t.headerGroups.map((hg) => (
-            <div
-              key={hg.id}
-              role="row"
-              className="grid grid-cols-[minmax(10rem,2fr)_5rem_5rem_minmax(6rem,1fr)] gap-3 py-2 text-[0.6875rem] tracking-wide text-muted-foreground"
-            >
-              {hg.headers.map((header) => {
-                const canSort = header.column.getCanSort();
-                const sortProps = t.getHeaderSortProps(header.column.id, canSort);
-                const label = flexRender(
-                  header.column.columnDef.header,
-                  header.getContext(),
-                );
-                if (canSort) {
-                  return (
-                    <button
-                      key={header.id}
-                      {...sortProps}
-                      className="text-left transition-colors duration-[var(--dur-fast)] hover:text-foreground motion-reduce:transition-none"
-                    >
-                      {label}
-                      {sortProps["data-sorted"] === "asc"
-                        ? " ↑"
-                        : sortProps["data-sorted"] === "desc"
-                          ? " ↓"
-                          : ""}
-                    </button>
-                  );
-                }
-                return (
-                  <div key={header.id} {...sortProps}>
-                    {label}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-
-        <div role="rowgroup">
-          {t.rows.map((row) => {
-            const node = row.original;
-            const rowProps = t.getRowProps(node);
-            return (
-              <button
-                key={row.id}
-                {...rowProps}
-                className={cn(
-                  "grid w-full grid-cols-[minmax(10rem,2fr)_5rem_5rem_minmax(6rem,1fr)] gap-3 border-b border-border py-2.5 text-left text-[0.8125rem]",
-                  "transition-[background-color] duration-[var(--dur-fast)] hover:bg-foreground/[0.03] motion-reduce:transition-none",
-                  rowProps.selected && "bg-foreground/[0.05]",
-                )}
+        <table
+          className="w-full min-w-[28rem] table-fixed border-collapse"
+          data-dense-font-table
+          aria-label="Font catalog dense"
+        >
+          <colgroup>
+            <col />
+            <col className="w-20" />
+            <col className="w-20" />
+            <col className="w-1/4" />
+          </colgroup>
+          <thead>
+            {t.headerGroups.map((headerGroup) => (
+              <tr
+                key={headerGroup.id}
+                className="text-[0.6875rem] tracking-wide text-muted-foreground"
               >
-                {row.getVisibleCells().map((cell) => (
-                  <span
-                    key={cell.id}
-                    role="cell"
-                    className={cn(
-                      cell.column.id === "stars" && "tabular-nums text-muted-foreground",
-                      cell.column.id === "format" && "text-muted-foreground",
-                      cell.column.id === "owner" && "text-muted-foreground",
-                      cell.column.id === "family" && "tracking-tight text-foreground",
-                    )}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </span>
-                ))}
-              </button>
-            );
-          })}
-        </div>
+                {headerGroup.headers.map((header) => {
+                  const sort = t.getHeaderSortProps(
+                    header.column.id,
+                    header.column.getCanSort(),
+                  );
+                  const label = flexRender(
+                    header.column.columnDef.header,
+                    header.getContext(),
+                  );
+
+                  return (
+                    <th
+                      key={header.id}
+                      {...sort.headerProps}
+                      scope="col"
+                      className="border-b border-border py-2 pr-3 text-left font-normal last:pr-0"
+                    >
+                      {sort.buttonProps ? (
+                        <button
+                          {...sort.buttonProps}
+                          className="inline-flex min-h-6 min-w-6 items-center text-left transition-colors duration-[var(--dur-fast)] hover:text-foreground motion-reduce:transition-none"
+                        >
+                          {label}
+                          {sort.buttonProps["data-sorted"] === "asc"
+                            ? " ↑"
+                            : sort.buttonProps["data-sorted"] === "desc"
+                              ? " ↓"
+                              : ""}
+                        </button>
+                      ) : (
+                        label
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            ))}
+          </thead>
+
+          <tbody>
+            {t.rows.map((row) => {
+              const rowProps = t.getRowProps(row.original);
+              return (
+                <tr
+                  key={row.id}
+                  onClick={rowProps.onClick}
+                  data-selected={rowProps.selected ? "true" : "false"}
+                  className={cn(
+                    "cursor-pointer border-b border-border text-[0.8125rem]",
+                    "transition-[background-color] duration-[var(--dur-fast)] hover:bg-foreground/[0.03] motion-reduce:transition-none",
+                    rowProps.selected && "bg-foreground/[0.05]",
+                  )}
+                >
+                  {row.getVisibleCells().map((cell) => {
+                    const content = flexRender(
+                      cell.column.columnDef.cell,
+                      cell.getContext(),
+                    );
+                    return (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          "overflow-hidden py-2.5 pr-3 align-middle last:pr-0",
+                          cell.column.id === "stars" &&
+                            "tabular-nums text-muted-foreground",
+                          cell.column.id === "format" &&
+                            "text-muted-foreground",
+                          cell.column.id === "owner" &&
+                            "text-muted-foreground",
+                          cell.column.id === "family" &&
+                            "tracking-tight text-foreground",
+                        )}
+                      >
+                        {cell.column.id === "family" ? (
+                          <button
+                            {...rowProps.selectionProps}
+                            className="flex min-h-6 min-w-6 w-full items-center overflow-hidden text-ellipsis whitespace-nowrap text-left underline-offset-4 hover:underline"
+                          >
+                            {content}
+                          </button>
+                        ) : (
+                          <span className="block truncate">{content}</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </>
   );

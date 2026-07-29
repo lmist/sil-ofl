@@ -14,7 +14,6 @@ export type FontRowInput = {
     "aria-label": string;
     "data-selected": string;
     "data-face-ready": string;
-    role: "listitem";
   };
   sampleProps: {
     style?: CSSProperties;

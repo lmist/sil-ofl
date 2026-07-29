@@ -93,9 +93,9 @@ function CatalogIslandInner({ className }: { className?: string }) {
         className={cn("flex min-h-0 flex-1 flex-col", className)}
       >
         <header className="flex h-[var(--header-height)] shrink-0 items-center justify-between border-b border-border px-[var(--gutter)]">
-          <p className="text-[0.8125rem] tracking-tight text-foreground">
+          <h1 className="text-[0.8125rem] tracking-tight text-foreground">
             SIL OFL Fonts
-          </p>
+          </h1>
           <StatsStrip />
         </header>
 

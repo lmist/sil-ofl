@@ -50,7 +50,6 @@ export function useFontList() {
         role: "list" as const,
         "aria-label": "Font families",
         "aria-busy": shell.isFetching || shell.isDebouncing,
-        "aria-rowcount": count,
         "data-font-list": true,
         "data-empty": shell.isEmpty ? "true" : "false",
         "data-placeholder": shell.isPlaceholderData ? "true" : "false",
@@ -62,7 +61,6 @@ export function useFontList() {
       shell.isEmpty,
       shell.isPlaceholderData,
       shell.totalCount,
-      count,
     ],
   );
 
@@ -121,7 +119,6 @@ export function useFontList() {
             "aria-label": interaction["aria-label"],
             "data-selected": interaction["data-selected"],
             "data-face-ready": interaction["data-face-ready"],
-            role: "listitem" as const,
           },
           sampleProps: {
             style: interaction.faceStyle,

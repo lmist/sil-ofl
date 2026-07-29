@@ -65,7 +65,7 @@ export function FontList({ className }: { className?: string }) {
         <p className="mt-6 max-w-md text-[0.9375rem] leading-[1.55] text-muted-foreground">
           {list.emptyHeadline}
         </p>
-        <p className="mt-2 max-w-md text-[0.8125rem] text-muted-foreground/80">
+        <p className="mt-2 max-w-md text-[0.8125rem] text-muted-foreground">
           {list.emptySubcopy}
         </p>
         {list.totalCount === 0 && !list.isFetching ? (
@@ -93,7 +93,11 @@ export function FontList({ className }: { className?: string }) {
         <div style={list.spacerStyle}>
           {list.rows.map((row) =>
             row.rowProps ? (
-              <div key={row.key} style={row.wrapperStyle}>
+              <div
+                key={row.key}
+                role="listitem"
+                style={row.wrapperStyle}
+              >
                 <FontRow {...row.rowProps} />
               </div>
             ) : (

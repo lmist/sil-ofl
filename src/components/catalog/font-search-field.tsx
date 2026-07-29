@@ -25,8 +25,7 @@ export function FontSearchField({ className }: { className?: string }) {
         </span>
         {hint ? (
           <span
-            className="text-[0.6875rem] tabular-nums text-muted-foreground/80"
-            aria-live="polite"
+            className="text-[0.6875rem] tabular-nums text-muted-foreground"
           >
             {hint}
           </span>

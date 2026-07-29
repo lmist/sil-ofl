@@ -86,7 +86,7 @@ export function FontUsePanel({ className }: { className?: string }) {
         {panel.downloadProps ? (
           <a
             {...panel.downloadProps}
-            className="text-foreground underline-offset-4 transition-opacity duration-[var(--dur-fast)] hover:underline hover:opacity-80 motion-reduce:transition-none"
+            className="inline-flex min-h-6 min-w-6 items-center text-foreground underline-offset-4 transition-opacity duration-[var(--dur-fast)] hover:underline hover:opacity-80 motion-reduce:transition-none"
           >
             Download file →
           </a>
@@ -95,7 +95,7 @@ export function FontUsePanel({ className }: { className?: string }) {
         {panel.repoProps ? (
           <a
             {...panel.repoProps}
-            className="text-muted-foreground underline-offset-4 transition-opacity duration-[var(--dur-fast)] hover:text-foreground hover:underline motion-reduce:transition-none"
+            className="inline-flex min-h-6 min-w-6 items-center text-muted-foreground underline-offset-4 transition-opacity duration-[var(--dur-fast)] hover:text-foreground hover:underline motion-reduce:transition-none"
           >
             GitHub →
           </a>
@@ -145,7 +145,7 @@ function ActionButton({
     <button
       {...props}
       className={cn(
-        "text-left text-foreground underline-offset-4",
+        "inline-flex min-h-6 min-w-6 items-center text-left text-foreground underline-offset-4",
         "transition-opacity duration-[var(--dur-fast)]",
         "hover:underline hover:opacity-80",
         "focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-ring",

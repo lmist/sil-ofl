@@ -126,23 +126,26 @@ export function useDenseFontTable() {
     (columnId: string, canSort: boolean) => {
       if (!canSort) {
         return {
-          role: "columnheader" as const,
-          "data-sortable": "false" as const,
+          headerProps: {},
+          buttonProps: null,
         };
       }
       const active = sorting[0]?.id === columnId;
       const desc = sorting[0]?.desc;
       return {
-        role: "columnheader" as const,
-        type: "button" as const,
-        onClick: () => onSortClick(columnId),
-        "data-sortable": "true" as const,
-        "data-sorted": active ? (desc ? "desc" : "asc") : "none",
-        "aria-sort": active
-          ? desc
-            ? ("descending" as const)
-            : ("ascending" as const)
-          : ("none" as const),
+        headerProps: active
+          ? {
+              "aria-sort": desc
+                ? ("descending" as const)
+                : ("ascending" as const),
+            }
+          : {},
+        buttonProps: {
+          type: "button" as const,
+          onClick: () => onSortClick(columnId),
+          "data-sortable": "true" as const,
+          "data-sorted": active ? (desc ? "desc" : "asc") : "none",
+        },
       };
     },
     [onSortClick, sorting],
@@ -153,13 +156,21 @@ export function useDenseFontTable() {
       const interaction = shell.getRowInteractionProps(node);
       // Dense mode: no hover face load — only select mounts specimen/face.
       return {
-        type: "button" as const,
-        onClick: interaction.onClick,
-        onKeyDown: interaction.onKeyDown,
-        "aria-pressed": interaction["aria-pressed"],
-        "aria-label": interaction["aria-label"],
-        "data-selected": interaction["data-selected"],
-        role: "row" as const,
+        selectionProps: {
+          type: "button" as const,
+          onClick: (
+            event: Parameters<typeof interaction.onClick>[0],
+          ) => {
+            event.stopPropagation();
+            interaction.onClick(event);
+          },
+          onKeyDown: interaction.onKeyDown,
+          "aria-pressed": interaction["aria-pressed"],
+          "aria-label": interaction["aria-label"],
+          "data-selected": interaction["data-selected"],
+          "data-font-row": true,
+        },
+        onClick: () => shell.selectFont(node),
         selected: interaction.selected,
         node,
       };
