@@ -417,15 +417,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function removeUnsafeErrorExtensions(result: unknown): void {
+const VARIABLE_COERCION_ERROR =
+  /^Variable "\$[_A-Za-z][_0-9A-Za-z]*" got invalid value\b/;
+
+function sanitizeGraphqlErrors(result: unknown): void {
   if (Array.isArray(result)) {
-    for (const item of result) removeUnsafeErrorExtensions(item);
+    for (const item of result) sanitizeGraphqlErrors(item);
     return;
   }
   if (!isRecord(result) || !Array.isArray(result.errors)) return;
 
   for (const error of result.errors) {
-    if (!isRecord(error) || !isRecord(error.extensions)) continue;
+    if (!isRecord(error)) continue;
+    if (
+      typeof error.message === "string" &&
+      VARIABLE_COERCION_ERROR.test(error.message)
+    ) {
+      error.message = "GraphQL variables contain invalid values.";
+      error.extensions = {
+        ...(isRecord(error.extensions) ? error.extensions : {}),
+        code: "BAD_USER_INPUT",
+      };
+    }
+    if (!isRecord(error.extensions)) continue;
     for (const key of Object.keys(error.extensions)) {
       if (key !== "code") {
         delete error.extensions[key];
@@ -507,7 +521,7 @@ async function inspectGraphqlResponse(
 
   try {
     const result: unknown = await response.clone().json();
-    removeUnsafeErrorExtensions(result);
+    sanitizeGraphqlErrors(result);
     const successful =
       response.ok &&
       isRecord(result) &&

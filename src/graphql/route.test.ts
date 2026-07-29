@@ -825,6 +825,43 @@ describe("GraphQL HTTP policy", () => {
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
   });
 
+  it("does not reflect invalid GraphQL variable values", async () => {
+    const privateMarker = "private-variable-marker-7d2ca3";
+    const response = await POST(
+      request(endpoint, {
+        method: "POST",
+        headers: {
+          Accept: "application/graphql-response+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: `
+            query InvalidPageSize($first: Int!) {
+              fonts(first: $first) { totalCount }
+            }
+          `,
+          variables: { first: privateMarker },
+        }),
+      }),
+    );
+    const result = (await response.json()) as {
+      errors?: Array<{ message?: string }>;
+    };
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(result, {
+      errors: [
+        {
+          message: "GraphQL variables contain invalid values.",
+          locations: [{ line: 2, column: 35 }],
+          extensions: { code: "BAD_USER_INPUT" },
+        },
+      ],
+    });
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(privateMarker));
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  });
+
   it("masks database configuration failures", async () => {
     const databaseUrl = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
