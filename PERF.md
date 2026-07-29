@@ -29,8 +29,8 @@ Targets for the home catalog route on Vercel (region `iad1`) with warm Neon.
 ## Bundle analysis
 
 ```bash
-npm run analyze          # interactive Turbopack analyzer
-npm run analyze:output   # write .next/diagnostics/analyze
+bun run analyze          # interactive Turbopack analyzer
+bun run analyze:output   # write .next/diagnostics/analyze
 ```
 
 Watch for accidental full-package imports of `lucide-react`, table, or virtual.

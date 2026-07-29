@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { resolveIsolatedE2ePort } from "./isolated-e2e";
+import { forwardTerminationSignals } from "./live-child-process";
 
 const port = await resolveIsolatedE2ePort(process.env.CONDUCTOR_PORT);
 const baseURL = `http://localhost:${port}`;
@@ -8,7 +9,7 @@ console.log(`Running isolated Playwright at ${baseURL} with server reuse disable
 
 const tests = spawn(
   process.execPath,
-  ["run", "test:e2e", ...process.argv.slice(2)],
+  ["run", "test:e2e:playwright", ...process.argv.slice(2)],
   {
     cwd: process.cwd(),
     env: {
@@ -21,33 +22,38 @@ const tests = spawn(
   },
 );
 
-const forwardedSignals: NodeJS.Signals[] = ["SIGHUP", "SIGINT", "SIGTERM"];
-const signalHandlers = new Map<NodeJS.Signals, () => void>();
-for (const signal of forwardedSignals) {
-  const handler = () => {
-    tests.kill(signal);
-  };
-  signalHandlers.set(signal, handler);
-  process.once(signal, handler);
-}
+const forwardedSignals = forwardTerminationSignals(tests);
 
-const result = await new Promise<{
+let result: {
   code: number | null;
   signal: NodeJS.Signals | null;
-}>((resolve, reject) => {
-  tests.once("error", reject);
-  tests.once("exit", (code, signal) => {
-    resolve({ code, signal });
+} | null = null;
+let failure: { error: unknown } | null = null;
+try {
+  result = await new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve, reject) => {
+    tests.once("error", reject);
+    tests.once("exit", (code, signal) => {
+      resolve({ code, signal });
+    });
   });
-});
-
-for (const [signal, handler] of signalHandlers) {
-  process.removeListener(signal, handler);
+} catch (error) {
+  failure = { error };
+} finally {
+  forwardedSignals.removeHandlers();
 }
+
+if (forwardedSignals.firstSignal !== null) {
+  process.kill(process.pid, forwardedSignals.firstSignal);
+  await new Promise<never>(() => {});
+}
+if (failure) throw failure.error;
+if (result === null) throw new Error("Playwright child returned no result");
 
 if (result.signal) {
   process.kill(process.pid, result.signal);
-  await new Promise(() => {});
+  await new Promise<never>(() => {});
 }
-
 process.exit(result.code ?? 1);

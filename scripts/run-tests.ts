@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { forwardTerminationSignals } from "./live-child-process";
 
 async function findFiles(directory: string, suffix: string): Promise<string[]> {
   const files: string[] = [];
@@ -41,33 +42,38 @@ const tests = spawn(
   },
 );
 
-const forwardedSignals: NodeJS.Signals[] = ["SIGHUP", "SIGINT", "SIGTERM"];
-const signalHandlers = new Map<NodeJS.Signals, () => void>();
-for (const signal of forwardedSignals) {
-  const handler = () => {
-    tests.kill(signal);
-  };
-  signalHandlers.set(signal, handler);
-  process.once(signal, handler);
-}
+const forwardedSignals = forwardTerminationSignals(tests);
 
-const result = await new Promise<{
+let result: {
   code: number | null;
   signal: NodeJS.Signals | null;
-}>((resolve, reject) => {
-  tests.once("error", reject);
-  tests.once("exit", (code, signal) => {
-    resolve({ code, signal });
+} | null = null;
+let failure: { error: unknown } | null = null;
+try {
+  result = await new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve, reject) => {
+    tests.once("error", reject);
+    tests.once("exit", (code, signal) => {
+      resolve({ code, signal });
+    });
   });
-});
-
-for (const [signal, handler] of signalHandlers) {
-  process.removeListener(signal, handler);
+} catch (error) {
+  failure = { error };
+} finally {
+  forwardedSignals.removeHandlers();
 }
+
+if (forwardedSignals.firstSignal !== null) {
+  process.kill(process.pid, forwardedSignals.firstSignal);
+  await new Promise<never>(() => {});
+}
+if (failure) throw failure.error;
+if (result === null) throw new Error("Test child returned no result");
 
 if (result.signal) {
   process.kill(process.pid, result.signal);
-  await new Promise(() => {});
+  await new Promise<never>(() => {});
 }
-
 process.exit(result.code ?? 1);
