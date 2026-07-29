@@ -175,6 +175,11 @@ export function useDenseFontTable() {
     getRowProps,
     empty: data.length === 0,
     isFetching: shell.isFetching,
+    isPlaceholderData: shell.isPlaceholderData,
+    error: shell.error,
+    retryCatalogProps: shell.retryCatalogProps,
+    canResetPagination: shell.catalog.context.after != null,
+    resetPaginationProps: shell.resetPaginationProps,
     totalCount: shell.totalCount,
   } as const;
 }

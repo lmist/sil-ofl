@@ -13,10 +13,13 @@ const FORMAT_OPTIONS = [
 
 const SORT_OPTIONS = [
   { value: "REPUTATION_DESC", label: "Reputation ↓" },
+  { value: "REPUTATION_ASC", label: "Reputation ↑" },
   { value: "STARS_DESC", label: "Stars ↓" },
+  { value: "STARS_ASC", label: "Stars ↑" },
   { value: "FAMILY_ASC", label: "Family A–Z" },
   { value: "FAMILY_DESC", label: "Family Z–A" },
   { value: "ID_DESC", label: "Newest" },
+  { value: "ID_ASC", label: "Oldest" },
 ] as const;
 
 /**

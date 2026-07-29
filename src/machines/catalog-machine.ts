@@ -13,6 +13,9 @@ import type { CatalogUrlSlice } from "./catalog-url";
 
 /** Search debounce for SET_Q (XState delayed transition — not useEffect). */
 export const CATALOG_Q_DEBOUNCE_MS = 175;
+export const GRAPHQL_INT_MAX = 2_147_483_647;
+export const CATALOG_LOAD_ERROR_MESSAGE =
+  "Unable to load the font catalog. Try again.";
 
 export type CatalogFilters = {
   format: string;
@@ -55,6 +58,8 @@ export type CatalogEvent =
       type: "SET_FILTER";
       filter: Partial<CatalogFilters>;
     }
+  | { type: "TOGGLE_WEBFONT" }
+  | { type: "TOGGLE_VARIABLE" }
   | { type: "CLEAR_FILTERS" }
   | { type: "SET_SORT"; sort: FontSort }
   | { type: "NEXT_PAGE"; endCursor: string }
@@ -100,6 +105,32 @@ export const defaultCatalogContext: CatalogContext = {
   isLoading: false,
   queryClient: null,
 };
+
+export function normalizeMinStars(value: number): number {
+  return Number.isInteger(value) &&
+    value >= 0 &&
+    value <= GRAPHQL_INT_MAX
+    ? value
+    : 0;
+}
+
+export function parseMinStarsInput(value: string): number {
+  if (!/^(?:0|[1-9]\d*)$/.test(value)) return 0;
+  return normalizeMinStars(Number(value));
+}
+
+function mergeCatalogFilters(
+  current: CatalogFilters,
+  patch: Partial<CatalogFilters>,
+): CatalogFilters {
+  return {
+    ...current,
+    ...patch,
+    ...(patch.minStars !== undefined
+      ? { minStars: normalizeMinStars(patch.minStars) }
+      : {}),
+  };
+}
 
 /** Map machine context → GraphQL / TanStack Query filter key. */
 export function toFontsFilter(ctx: CatalogContext): FontsFilter {
@@ -175,10 +206,7 @@ export const catalogMachine = setup({
   context: ({ input }) => ({
     ...defaultCatalogContext,
     ...input,
-    filters: {
-      ...defaultCatalogFilters,
-      ...input?.filters,
-    },
+    filters: mergeCatalogFilters(defaultCatalogFilters, input?.filters ?? {}),
     cursorStack: input?.cursorStack ? [...input.cursorStack] : [],
     connection: null,
     error: null,
@@ -229,7 +257,31 @@ export const catalogMachine = setup({
         SET_FILTER: {
           target: "ready",
           actions: assign(({ context, event }) => ({
-            filters: { ...context.filters, ...event.filter },
+            filters: mergeCatalogFilters(context.filters, event.filter),
+            ...resetPagination(),
+            error: null,
+            isLoading: true,
+          })),
+        },
+        TOGGLE_WEBFONT: {
+          target: "ready",
+          actions: assign(({ context }) => ({
+            filters: {
+              ...context.filters,
+              webfont: context.filters.webfont === true ? null : true,
+            },
+            ...resetPagination(),
+            error: null,
+            isLoading: true,
+          })),
+        },
+        TOGGLE_VARIABLE: {
+          target: "ready",
+          actions: assign(({ context }) => ({
+            filters: {
+              ...context.filters,
+              variable: context.filters.variable === true ? null : true,
+            },
             ...resetPagination(),
             error: null,
             isLoading: true,
@@ -240,7 +292,9 @@ export const catalogMachine = setup({
           actions: assign(() => ({
             q: "",
             filters: { ...defaultCatalogFilters },
+            sort: "REPUTATION_DESC" as FontSort,
             ...resetPagination(),
+            selectedFontId: null,
             error: null,
             isLoading: true,
           })),
@@ -272,7 +326,7 @@ export const catalogMachine = setup({
     },
 
     ready: {
-      entry: assign({ error: null, isLoading: true }),
+      entry: assign({ isLoading: true }),
       invoke: {
         id: "loadFonts",
         src: "loadFonts",
@@ -286,10 +340,7 @@ export const catalogMachine = setup({
         },
         onError: {
           actions: assign({
-            error: ({ event }) =>
-              event.error instanceof Error
-                ? event.error.message
-                : "Failed to load fonts",
+            error: CATALOG_LOAD_ERROR_MESSAGE,
             // Keep previous connection when a refetch fails (placeholder).
             isLoading: false,
           }),
@@ -309,7 +360,33 @@ export const catalogMachine = setup({
           target: "ready",
           reenter: true,
           actions: assign(({ context, event }) => ({
-            filters: { ...context.filters, ...event.filter },
+            filters: mergeCatalogFilters(context.filters, event.filter),
+            ...resetPagination(),
+            error: null,
+            isLoading: true,
+          })),
+        },
+        TOGGLE_WEBFONT: {
+          target: "ready",
+          reenter: true,
+          actions: assign(({ context }) => ({
+            filters: {
+              ...context.filters,
+              webfont: context.filters.webfont === true ? null : true,
+            },
+            ...resetPagination(),
+            error: null,
+            isLoading: true,
+          })),
+        },
+        TOGGLE_VARIABLE: {
+          target: "ready",
+          reenter: true,
+          actions: assign(({ context }) => ({
+            filters: {
+              ...context.filters,
+              variable: context.filters.variable === true ? null : true,
+            },
             ...resetPagination(),
             error: null,
             isLoading: true,
@@ -340,7 +417,10 @@ export const catalogMachine = setup({
         NEXT_PAGE: {
           target: "ready",
           reenter: true,
-          guard: ({ event }) => Boolean(event.endCursor),
+          guard: ({ context, event }) =>
+            Boolean(event.endCursor) &&
+            !context.isLoading &&
+            event.endCursor !== context.after,
           actions: assign(({ context, event }) => ({
             cursorStack: [
               ...context.cursorStack,
@@ -354,13 +434,15 @@ export const catalogMachine = setup({
         PREV_PAGE: {
           target: "ready",
           reenter: true,
-          guard: ({ context }) => context.cursorStack.length > 0,
+          guard: ({ context }) =>
+            !context.isLoading &&
+            (context.cursorStack.length > 0 || context.after != null),
           actions: assign(({ context }) => {
             const stack = [...context.cursorStack];
-            const prev = stack.pop()!;
+            const prev = stack.pop();
             return {
               cursorStack: stack,
-              after: prev === "" ? null : prev,
+              after: prev == null || prev === "" ? null : prev,
               error: null,
               isLoading: true,
             };
@@ -393,7 +475,7 @@ export const catalogMachine = setup({
         RETRY: {
           target: "ready",
           reenter: true,
-          actions: assign({ error: null, isLoading: true }),
+          actions: assign({ isLoading: true }),
         },
       },
     },

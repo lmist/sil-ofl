@@ -21,9 +21,19 @@ export function usePaginationControls() {
 
   const pageLabel = useMemo(() => {
     if (!shell.connection) return "—";
-    const page = shell.catalog.context.cursorStack.length + 1;
+    const stackDepth = shell.catalog.context.cursorStack.length;
+    const page =
+      stackDepth > 0
+        ? stackDepth + 1
+        : shell.catalog.context.after != null
+          ? 2
+          : 1;
     return `Page ${page}`;
-  }, [shell.connection, shell.catalog.context.cursorStack.length]);
+  }, [
+    shell.connection,
+    shell.catalog.context.cursorStack.length,
+    shell.catalog.context.after,
+  ]);
 
   return {
     rootProps,

@@ -11,13 +11,18 @@ import {
   type MouseEvent,
 } from "react";
 import { useCatalogMachine } from "@/hooks/use-catalog-machine";
+import { useMountEffect } from "@/hooks/use-mount-effect";
 import { useSpecimenMachine } from "@/hooks/use-specimen-machine";
 import {
   useCatalogStatsQuery,
   useFontsQuery,
   usePrefetchNextFontsPage,
 } from "@/hooks/use-fonts-query";
-import { toFontsFilter } from "@/machines/catalog-machine";
+import {
+  CATALOG_LOAD_ERROR_MESSAGE,
+  parseMinStarsInput,
+  toFontsFilter,
+} from "@/machines/catalog-machine";
 import type { CatalogEvent } from "@/machines/catalog-machine";
 import type { FontFile, FontSort } from "@/types/catalog";
 
@@ -52,6 +57,8 @@ export function useFontCatalogShell() {
   const statsQuery = useCatalogStatsQuery();
   const [specimenText, setSpecimenText] = useState(DEFAULT_SPECIMEN_TEXT);
   const [denseMode, setDenseMode] = useState(false);
+  const [selectedFontCache, setSelectedFontCache] =
+    useState<FontFile | null>(null);
 
   const { context, error, send, matches } = catalog;
 
@@ -80,6 +87,9 @@ export function useFontCatalogShell() {
     enabled: !isDebouncing,
   });
 
+  const catalogError =
+    error || (fontsQuery.isError ? CATALOG_LOAD_ERROR_MESSAGE : null);
+
   // Prefer query data (includes placeholder), fall back to machine connection.
   const connection =
     fontsQuery.data ?? catalog.connection ?? null;
@@ -88,7 +98,8 @@ export function useFontCatalogShell() {
     fontsQuery.isPlaceholderData ||
       (catalog.context.isLoading &&
         catalog.connection != null &&
-        fontsQuery.data === undefined),
+        fontsQuery.data === undefined) ||
+      (catalogError != null && connection != null),
   );
 
   usePrefetchNextFontsPage(fontsFilter, connection?.pageInfo, {
@@ -102,12 +113,19 @@ export function useFontCatalogShell() {
   const totalCount = connection?.totalCount ?? 0;
   const hasNext = connection?.pageInfo.hasNextPage ?? false;
   const endCursor = connection?.pageInfo.endCursor ?? null;
-  const canPrev = context.cursorStack.length > 0;
+  const canPrev = context.cursorStack.length > 0 || context.after != null;
   const selectedFontId = context.selectedFontId;
+
+  useMountEffect(() => {
+    if (selectedFontId != null) {
+      specimen.send({ type: "LOAD_BY_ID", fontId: selectedFontId });
+    }
+  });
 
   const isFetching =
     (matches("ready") && context.isLoading) ||
     (fontsQuery.isFetching && !isDebouncing);
+  const isPageUnresolved = isFetching || isPlaceholderData;
 
   const isEmpty =
     matches("ready") &&
@@ -118,13 +136,40 @@ export function useFontCatalogShell() {
     !isPlaceholderData;
 
   const selectedEdge = useMemo(
-    () => edges.find((e) => e.node.fontFileId === selectedFontId) ?? null,
-    [edges, selectedFontId],
+    () => {
+      if (selectedFontId == null) return null;
+
+      const visible =
+        edges.find((edge) => edge.node.fontFileId === selectedFontId) ?? null;
+      if (visible) return visible;
+
+      if (selectedFontCache?.fontFileId === selectedFontId) {
+        return {
+          cursor: `selected-${selectedFontId}`,
+          node: selectedFontCache,
+        };
+      }
+
+      if (specimen.context.font?.fontFileId === selectedFontId) {
+        return {
+          cursor: `selected-${selectedFontId}`,
+          node: specimen.context.font,
+        };
+      }
+
+      return null;
+    },
+    [
+      edges,
+      selectedFontId,
+      selectedFontCache,
+      specimen.context.font,
+    ],
   );
 
   const loadSpecimen = useCallback(
     (node: FontFile) => {
-      specimen.send({
+      const event = {
         type: "LOAD",
         fontId: node.fontFileId,
         cdnUrl: node.cdnUrl,
@@ -132,13 +177,17 @@ export function useFontCatalogShell() {
         format: node.format,
         family: node.familyGuess,
         fileName: node.fileName,
-      });
+        weight: node.weightGuess,
+        style: node.styleGuess,
+      } as const;
+      specimen.send(event);
     },
     [specimen],
   );
 
   const selectFont = useCallback(
     (node: FontFile) => {
+      setSelectedFontCache(node);
       send({ type: "SELECT_FONT", id: node.fontFileId });
       loadSpecimen(node);
     },
@@ -178,34 +227,21 @@ export function useFontCatalogShell() {
 
   const onMinStarsChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      const n = Number.parseInt(e.target.value, 10);
       send({
         type: "SET_FILTER",
-        filter: { minStars: Number.isFinite(n) && n > 0 ? n : 0 },
+        filter: { minStars: parseMinStarsInput(e.target.value) },
       });
     },
     [send],
   );
 
   const onWebfontToggle = useCallback(() => {
-    const next =
-      context.filters.webfont === true
-        ? null
-        : context.filters.webfont === null
-          ? true
-          : null;
-    send({ type: "SET_FILTER", filter: { webfont: next } });
-  }, [send, context.filters.webfont]);
+    send({ type: "TOGGLE_WEBFONT" });
+  }, [send]);
 
   const onVariableToggle = useCallback(() => {
-    const next =
-      context.filters.variable === true
-        ? null
-        : context.filters.variable === null
-          ? true
-          : null;
-    send({ type: "SET_FILTER", filter: { variable: next } });
-  }, [send, context.filters.variable]);
+    send({ type: "TOGGLE_VARIABLE" });
+  }, [send]);
 
   const onPrevPage = useCallback(() => {
     send({ type: "PREV_PAGE" });
@@ -215,14 +251,19 @@ export function useFontCatalogShell() {
     if (endCursor) send({ type: "NEXT_PAGE", endCursor });
   }, [send, endCursor]);
 
-  const onClearFilters = useCallback(() => {
-    send({ type: "CLEAR_FILTERS" });
+  const onResetPagination = useCallback(() => {
+    send({ type: "GO_FIRST" });
   }, [send]);
+
+  const onClearFilters = useCallback(() => {
+    setSelectedFontCache(null);
+    send({ type: "CLEAR_FILTERS" });
+    specimen.send({ type: "CLEAR" });
+  }, [send, specimen]);
 
   const onRetryCatalog = useCallback(() => {
     send({ type: "RETRY" });
-    void fontsQuery.refetch();
-  }, [send, fontsQuery]);
+  }, [send]);
 
   const onRetrySpecimen = useCallback(() => {
     specimen.send({ type: "RETRY" });
@@ -236,6 +277,7 @@ export function useFontCatalogShell() {
   );
 
   const onDeselect = useCallback(() => {
+    setSelectedFontCache(null);
     send({ type: "DESELECT" });
     specimen.send({ type: "CLEAR" });
   }, [send, specimen]);
@@ -245,7 +287,7 @@ export function useFontCatalogShell() {
   }, []);
 
   const headerStatus = useMemo(() => {
-    if (error && edges.length === 0) return "Error";
+    if (catalogError) return "Error";
     if (isDebouncing) return "Searching…";
     if (isFetching && edges.length === 0) return "Loading…";
     if (connection) {
@@ -254,7 +296,7 @@ export function useFontCatalogShell() {
     }
     return "Loading…";
   }, [
-    error,
+    catalogError,
     isDebouncing,
     isFetching,
     connection,
@@ -375,10 +417,10 @@ export function useFontCatalogShell() {
       ({
         type: "button" as const,
         onClick: onPrevPage,
-        disabled: !canPrev,
+        disabled: isPageUnresolved || !canPrev,
         "aria-label": "Previous page",
       }) as const,
-    [onPrevPage, canPrev],
+    [onPrevPage, canPrev, isPageUnresolved],
   );
 
   const nextPageProps = useMemo(
@@ -386,10 +428,20 @@ export function useFontCatalogShell() {
       ({
         type: "button" as const,
         onClick: onNextPage,
-        disabled: !hasNext || !endCursor,
+        disabled: isPageUnresolved || !hasNext || !endCursor,
         "aria-label": "Next page",
       }) as const,
-    [onNextPage, hasNext, endCursor],
+    [onNextPage, hasNext, endCursor, isPageUnresolved],
+  );
+
+  const resetPaginationProps = useMemo(
+    () =>
+      ({
+        type: "button" as const,
+        onClick: onResetPagination,
+        "aria-label": "Reset pagination",
+      }) as const,
+    [onResetPagination],
   );
 
   const clearFiltersProps = useMemo(
@@ -435,11 +487,11 @@ export function useFontCatalogShell() {
 
       // Hover/focus loads face only for this row — never for offscreen virtual rows.
       const onMouseEnter = () => {
-        loadSpecimen(node);
+        if (selectedFontId == null) loadSpecimen(node);
       };
 
       const onFocus = () => {
-        loadSpecimen(node);
+        if (selectedFontId == null) loadSpecimen(node);
       };
 
       const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
@@ -500,13 +552,7 @@ export function useFontCatalogShell() {
     send: sendEvent,
     edges,
     connection,
-    error:
-      error ??
-      (fontsQuery.isError
-        ? fontsQuery.error instanceof Error
-          ? fontsQuery.error.message
-          : "Failed to load fonts"
-        : null),
+    error: catalogError,
     selectedFontId,
     selectedEdge,
     totalCount,
@@ -543,6 +589,7 @@ export function useFontCatalogShell() {
     denseModeToggleProps,
     prevPageProps,
     nextPageProps,
+    resetPaginationProps,
     clearFiltersProps,
     retryCatalogProps,
     retrySpecimenProps,

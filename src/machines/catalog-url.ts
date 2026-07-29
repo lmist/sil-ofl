@@ -36,38 +36,32 @@ export type CatalogUrlSlice = {
 
 /**
  * Parse catalog slice from URLSearchParams / Next searchParams.
- * Missing keys leave defaults for the caller to merge.
+ * Missing keys are explicit defaults so parameter removal clears machine state.
  */
 export function parseCatalogSearchParams(
   params: URLSearchParams | ReadonlyURLSearchParamsLike,
-): Partial<CatalogUrlSlice> {
-  const slice: Partial<CatalogUrlSlice> = {};
-
-  const q = params.get(CATALOG_URL_KEYS.q);
-  if (q != null && q !== "") slice.q = q;
-
-  const format = params.get(CATALOG_URL_KEYS.format);
-  const owner = params.get(CATALOG_URL_KEYS.owner);
-  if (format != null || owner != null) {
-    slice.filters = {
-      format: format ?? "",
-      owner: owner ?? "",
-    };
-  }
-
+): CatalogUrlSlice {
   const sort = params.get(CATALOG_URL_KEYS.sort);
-  if (sort && isFontSort(sort)) slice.sort = sort;
-
   const after = params.get(CATALOG_URL_KEYS.after);
-  if (after != null && after !== "") slice.after = after;
-
   const font = params.get(CATALOG_URL_KEYS.font);
-  if (font != null && font !== "") {
-    const id = Number(font);
-    if (Number.isFinite(id)) slice.selectedFontId = id;
-  }
+  const fontId = font == null || font === "" ? null : Number(font);
 
-  return slice;
+  return {
+    q: params.get(CATALOG_URL_KEYS.q) ?? "",
+    filters: {
+      format: params.get(CATALOG_URL_KEYS.format) ?? "",
+      owner: params.get(CATALOG_URL_KEYS.owner) ?? "",
+    },
+    sort: sort && isFontSort(sort) ? sort : "REPUTATION_DESC",
+    after: after == null || after === "" ? null : after,
+    selectedFontId:
+      fontId != null &&
+      Number.isSafeInteger(fontId) &&
+      fontId > 0 &&
+      fontId <= 2_147_483_647
+        ? fontId
+        : null,
+  };
 }
 
 /** Serialise catalog machine context → search string (no leading `?`). */

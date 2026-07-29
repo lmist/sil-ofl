@@ -23,13 +23,16 @@ function createTestCatalog(options?: {
   clock?: SimulatedClock;
   connection?: FontConnection;
   fail?: boolean;
+  error?: unknown;
 }) {
   const clock = options?.clock ?? new SimulatedClock();
   const connection = options?.connection ?? emptyConnection;
   const machine = catalogMachine.provide({
     actors: {
       loadFonts: fromPromise(async () => {
-        if (options?.fail) throw new Error("network boom");
+        if (options?.fail) {
+          throw options.error ?? new Error("network boom");
+        }
         return connection;
       }),
     },
@@ -81,29 +84,69 @@ describe("catalogMachine", () => {
     assert.equal(actor.getSnapshot().context.q, "ab");
   });
 
-  it("paginates with cursor stack NEXT / PREV / GO_FIRST", () => {
+  it("paginates with cursor stack NEXT / PREV / GO_FIRST", async () => {
     const { actor } = createTestCatalog();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     actor.send({ type: "NEXT_PAGE", endCursor: "c1" });
     assert.equal(actor.getSnapshot().context.after, "c1");
     assert.deepEqual(actor.getSnapshot().context.cursorStack, [""]);
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     actor.send({ type: "NEXT_PAGE", endCursor: "c2" });
     assert.equal(actor.getSnapshot().context.after, "c2");
     assert.deepEqual(actor.getSnapshot().context.cursorStack, ["", "c1"]);
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     actor.send({ type: "PREV_PAGE" });
     assert.equal(actor.getSnapshot().context.after, "c1");
     assert.deepEqual(actor.getSnapshot().context.cursorStack, [""]);
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     actor.send({ type: "PREV_PAGE" });
     assert.equal(actor.getSnapshot().context.after, null);
     assert.deepEqual(actor.getSnapshot().context.cursorStack, []);
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     actor.send({ type: "NEXT_PAGE", endCursor: "c9" });
     actor.send({ type: "GO_FIRST" });
     assert.equal(actor.getSnapshot().context.after, null);
     assert.deepEqual(actor.getSnapshot().context.cursorStack, []);
+  });
+
+  it("consumes a forward cursor at most once while the destination is unresolved", async () => {
+    const connection: FontConnection = {
+      edges: [],
+      pageInfo: { hasNextPage: true, endCursor: "c1" },
+      totalCount: 3,
+    };
+    const { actor } = createTestCatalog({ connection });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    actor.send({ type: "NEXT_PAGE", endCursor: "c1" });
+    actor.send({ type: "NEXT_PAGE", endCursor: "c1" });
+
+    assert.equal(actor.getSnapshot().context.after, "c1");
+    assert.deepEqual(actor.getSnapshot().context.cursorStack, [""]);
+  });
+
+  it("pops at most one previous cursor while the destination is unresolved", async () => {
+    const machine = catalogMachine.provide({
+      actors: {
+        loadFonts: fromPromise(async () => emptyConnection),
+      },
+    });
+    const actor = createActor(machine, {
+      input: { after: "c2", cursorStack: ["", "c1"] },
+    });
+    actor.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    actor.send({ type: "PREV_PAGE" });
+    actor.send({ type: "PREV_PAGE" });
+
+    assert.equal(actor.getSnapshot().context.after, "c1");
+    assert.deepEqual(actor.getSnapshot().context.cursorStack, [""]);
   });
 
   it("ignores PREV_PAGE on first page", () => {
@@ -135,6 +178,56 @@ describe("catalogMachine", () => {
     assert.equal(ctx.filters.owner, "");
     assert.equal(ctx.filters.minStars, 0);
     assert.equal(ctx.after, null);
+  });
+
+  it("CLEAR_FILTERS is a full reset while search is debouncing", () => {
+    const { actor } = createTestCatalog();
+    actor.send({ type: "SELECT_FONT", id: 42 });
+    actor.send({ type: "SET_SORT", sort: "STARS_ASC" });
+    actor.send({ type: "SET_Q", q: "inter" });
+    assert.equal(actor.getSnapshot().value, "debouncing_q");
+
+    actor.send({ type: "CLEAR_FILTERS" });
+
+    const ctx = actor.getSnapshot().context;
+    assert.equal(ctx.q, "");
+    assert.deepEqual(ctx.filters, {
+      format: "",
+      owner: "",
+      minStars: 0,
+      webfont: null,
+      variable: null,
+    });
+    assert.equal(ctx.sort, "REPUTATION_DESC");
+    assert.equal(ctx.selectedFontId, null);
+    assert.equal(ctx.after, null);
+    assert.deepEqual(ctx.cursorStack, []);
+  });
+
+  it("rejects fractional minimum stars before it reaches active state", () => {
+    const { actor } = createTestCatalog();
+
+    actor.send({ type: "SET_FILTER", filter: { minStars: 1.5 } });
+
+    const ctx = actor.getSnapshot().context;
+    assert.equal(ctx.filters.minStars, 0);
+    assert.equal(toFontsFilter(ctx).minStars, null);
+  });
+
+  it("applies rapid boolean toggles from current machine state", () => {
+    const { actor } = createTestCatalog();
+
+    actor.send({ type: "TOGGLE_WEBFONT" });
+    assert.equal(actor.getSnapshot().context.filters.webfont, true);
+
+    actor.send({ type: "TOGGLE_WEBFONT" });
+    assert.equal(actor.getSnapshot().context.filters.webfont, null);
+
+    actor.send({ type: "TOGGLE_VARIABLE" });
+    assert.equal(actor.getSnapshot().context.filters.variable, true);
+
+    actor.send({ type: "TOGGLE_VARIABLE" });
+    assert.equal(actor.getSnapshot().context.filters.variable, null);
   });
 
   it("SELECT_FONT and DESELECT", () => {
@@ -210,13 +303,54 @@ describe("catalogMachine", () => {
     assert.equal(actor.getSnapshot().context.error, null);
   });
 
-  it("records error when loadFonts fails", async () => {
-    const { actor } = createTestCatalog({ fail: true });
+  it("masks internal request details when loadFonts fails", async () => {
+    const { actor } = createTestCatalog({
+      fail: true,
+      error: new Error(
+        "GraphQL request failed: query Fonts($filter: FontFilter) variables={secret}",
+      ),
+    });
     await new Promise((r) => setTimeout(r, 0));
-    assert.equal(actor.getSnapshot().context.error, "network boom");
+    assert.equal(
+      actor.getSnapshot().context.error,
+      "Unable to load the font catalog. Try again.",
+    );
     // Initial load: connection stays null; refetch failures keep previous data.
     assert.equal(actor.getSnapshot().context.connection, null);
     assert.equal(actor.getSnapshot().context.isLoading, false);
+  });
+
+  it("keeps the safe error visible until retry succeeds", async () => {
+    let attempt = 0;
+    let resolveRetry!: (connection: FontConnection) => void;
+    const machine = catalogMachine.provide({
+      actors: {
+        loadFonts: fromPromise(
+          () =>
+            attempt++ === 0
+              ? Promise.reject(new Error("sensitive transport detail"))
+              : new Promise<FontConnection>((resolve) => {
+                  resolveRetry = resolve;
+                }),
+        ),
+      },
+    });
+    const actor = createActor(machine, { input: {} });
+    actor.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    actor.send({ type: "RETRY" });
+
+    assert.equal(
+      actor.getSnapshot().context.error,
+      "Unable to load the font catalog. Try again.",
+    );
+    assert.equal(actor.getSnapshot().context.isLoading, true);
+
+    resolveRetry(emptyConnection);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(actor.getSnapshot().context.error, null);
+    assert.deepEqual(actor.getSnapshot().context.connection, emptyConnection);
   });
 
   it("keeps previous connection while filter refetch is in flight", async () => {

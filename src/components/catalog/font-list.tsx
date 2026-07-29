@@ -11,26 +11,38 @@ import { cn } from "@/lib/utils";
 export function FontList({ className }: { className?: string }) {
   const list = useFontList();
 
-  if (list.showError) {
-    return (
-      <div
-        className={cn(
-          "border-b border-border px-[var(--gutter)] py-6 text-[0.8125rem] text-muted-foreground",
-          className,
-        )}
-        role="alert"
+  const errorStatus = list.showError ? (
+    <div
+      className={cn(
+        "border-b border-border px-[var(--gutter)] py-6 text-[0.8125rem] text-muted-foreground",
+        className,
+      )}
+      role="alert"
+      data-catalog-error
+    >
+      {list.error}{" "}
+      {list.showList ? "Retained results may be stale. " : null}
+      <button
+        {...list.retryCatalogProps}
+        type="button"
+        className="underline underline-offset-4"
       >
-        {list.error}{" "}
-        <button
-          {...list.retryCatalogProps}
-          type="button"
-          className="underline underline-offset-4"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
+        Retry
+      </button>
+      {list.canResetPagination ? (
+        <>
+          {" "}
+          <button
+            {...list.resetPaginationProps}
+            aria-label="Reset"
+            className="underline underline-offset-4"
+          >
+            Reset
+          </button>
+        </>
+      ) : null}
+    </div>
+  ) : null;
 
   if (list.showEmpty) {
     return (
@@ -65,26 +77,31 @@ export function FontList({ className }: { className?: string }) {
     );
   }
 
+  if (!list.showList) return errorStatus;
+
   return (
-    <div
-      {...list.containerProps}
-      className={cn(
-        "w-full px-[var(--gutter)] pb-16",
-        list.isFetching && "opacity-90",
-        className,
-      )}
-    >
-      <div style={list.spacerStyle}>
-        {list.rows.map((row) =>
-          row.rowProps ? (
-            <div key={row.key} style={row.wrapperStyle}>
-              <FontRow {...row.rowProps} />
-            </div>
-          ) : (
-            <div key={row.key} style={row.wrapperStyle} />
-          ),
+    <>
+      {errorStatus}
+      <div
+        {...list.containerProps}
+        className={cn(
+          "w-full px-[var(--gutter)] pb-16",
+          list.isFetching && "opacity-90",
+          className,
         )}
+      >
+        <div style={list.spacerStyle}>
+          {list.rows.map((row) =>
+            row.rowProps ? (
+              <div key={row.key} style={row.wrapperStyle}>
+                <FontRow {...row.rowProps} />
+              </div>
+            ) : (
+              <div key={row.key} style={row.wrapperStyle} />
+            ),
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

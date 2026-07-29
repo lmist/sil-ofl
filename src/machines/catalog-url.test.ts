@@ -51,6 +51,16 @@ describe("catalog-url", () => {
     assert.equal(slice.selectedFontId, 99);
   });
 
+  it("parses missing keys as explicit catalog defaults", () => {
+    const slice = parseCatalogSearchParams(new URLSearchParams());
+
+    assert.equal(slice.q, "");
+    assert.deepEqual(slice.filters, { format: "", owner: "" });
+    assert.equal(slice.sort, "REPUTATION_DESC");
+    assert.equal(slice.after, null);
+    assert.equal(slice.selectedFontId, null);
+  });
+
   it("round-trips serialize → parse", () => {
     const original = {
       q: "sil",

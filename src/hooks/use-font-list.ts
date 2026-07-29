@@ -151,7 +151,7 @@ export function useFontList() {
   // Keep showing list when we have placeholder (previous) data during fetch.
   const showList = count > 0;
   const showEmpty = !showList && !shell.error;
-  const showError = Boolean(shell.error) && count === 0;
+  const showError = Boolean(shell.error);
 
   return {
     containerProps,
@@ -164,6 +164,8 @@ export function useFontList() {
     emptySubcopy,
     error: shell.error,
     retryCatalogProps: shell.retryCatalogProps,
+    canResetPagination: shell.catalog.context.after != null,
+    resetPaginationProps: shell.resetPaginationProps,
     isFetching: shell.isFetching,
     isPlaceholderData: shell.isPlaceholderData,
     totalCount: shell.totalCount,
