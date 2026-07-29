@@ -8,7 +8,11 @@ import {
   type SelectionSetNode,
   type ValidationRule,
 } from "graphql";
-import { createYoga, type Plugin } from "graphql-yoga";
+import {
+  createYoga,
+  processRegularResult,
+  type Plugin,
+} from "graphql-yoga";
 import { schema } from "@/graphql/schema";
 import { getSql } from "@/lib/db";
 import type { GraphQLContext } from "@/graphql/schema/builder";
@@ -178,9 +182,12 @@ function graphqlErrorResponse(
   status: number,
   message: string,
 ): Response {
+  const mediaType =
+    acceptedJsonGraphqlMediaType(request) ??
+    "application/graphql-response+json";
   const headers = new Headers({
     "Cache-Control": NO_STORE,
-    "Content-Type": "application/graphql-response+json; charset=utf-8",
+    "Content-Type": `${mediaType}; charset=utf-8`,
   });
   appendVary(headers, "Accept", "Content-Type");
   addCorsHeaders(request, headers);
@@ -211,14 +218,316 @@ function hasValidSerializedObject(
   }
 }
 
-function isFormEncodedRequest(request: Request): boolean {
-  return (
-    request.headers
-      .get("Content-Type")
-      ?.split(";")[0]
-      ?.trim()
-      .toLowerCase() === "application/x-www-form-urlencoded"
+type InspectedContentType =
+  | { kind: "invalid" }
+  | { kind: "missing" }
+  | { kind: "valid"; mediaType: string };
+
+function trimHttpOws(value: string): string {
+  return value.replace(/^[\t ]+|[\t ]+$/g, "");
+}
+
+function inspectContentType(request: Request): InspectedContentType {
+  const contentType = request.headers.get("Content-Type");
+  if (contentType === null) return { kind: "missing" };
+
+  const [serializedMediaType, ...serializedParameters] = splitOutsideQuotes(
+    contentType,
+    ";",
   );
+  const mediaType = serializedMediaType
+    ? trimHttpOws(serializedMediaType).toLowerCase()
+    : undefined;
+  const mediaTypeParts = mediaType?.split("/") ?? [];
+  if (
+    mediaTypeParts.length !== 2 ||
+    mediaTypeParts.some((part) => !HTTP_TOKEN.test(part) || part === "*")
+  ) {
+    return { kind: "invalid" };
+  }
+
+  const parameters = serializedParameters
+    .filter((parameter) => trimHttpOws(parameter) !== "")
+    .map(parseHttpParameter);
+  if (parameters.some((parameter) => parameter === null)) {
+    return { kind: "invalid" };
+  }
+  const parsedParameters = parameters as HttpParameter[];
+  if (
+    new Set(parsedParameters.map((parameter) => parameter.name)).size !==
+      parsedParameters.length ||
+    parsedParameters.some((parameter) => parameter.name !== "charset")
+  ) {
+    return { kind: "invalid" };
+  }
+  const charset = parsedParameters.find(
+    (parameter) => parameter.name === "charset",
+  );
+  if (charset && charset.value !== "utf-8") {
+    return { kind: "invalid" };
+  }
+
+  return { kind: "valid", mediaType: mediaType! };
+}
+
+function requestMediaType(request: Request): string | null {
+  const contentType = inspectContentType(request);
+  return contentType.kind === "valid" ? contentType.mediaType : null;
+}
+
+function isFormEncodedRequest(request: Request): boolean {
+  return requestMediaType(request) === "application/x-www-form-urlencoded";
+}
+
+const NORMALIZED_GRAPHQL_POST_MEDIA_TYPES = new Set([
+  "application/graphql",
+  "application/graphql+json",
+  "application/json",
+  "application/x-www-form-urlencoded",
+]);
+
+function normalizeGraphqlPostContentType(request: Request): Request {
+  const mediaType = requestMediaType(request);
+  if (
+    mediaType === null ||
+    !NORMALIZED_GRAPHQL_POST_MEDIA_TYPES.has(mediaType)
+  ) {
+    return request;
+  }
+
+  const headers = new Headers(request.headers);
+  headers.set("Content-Type", mediaType);
+  return new Request(request, { headers });
+}
+
+type JsonGraphqlMediaType =
+  | "application/graphql-response+json"
+  | "application/json";
+
+function splitOutsideQuotes(value: string, delimiter: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let quoted = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) {
+      escaped = false;
+    } else if (quoted && character === "\\") {
+      escaped = true;
+    } else if (character === '"') {
+      quoted = !quoted;
+    } else if (!quoted && character === delimiter) {
+      parts.push(value.slice(start, index));
+      start = index + 1;
+    }
+  }
+
+  parts.push(value.slice(start));
+  return parts;
+}
+
+const HTTP_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+type HttpParameter = {
+  name: string;
+  quoted: boolean;
+  value: string;
+};
+
+function parseHttpParameter(value: string): HttpParameter | null {
+  const serializedParameter = trimHttpOws(value);
+  const separator = serializedParameter.indexOf("=");
+  if (separator === -1) return null;
+
+  const serializedName = serializedParameter.slice(0, separator);
+  const serializedValue = serializedParameter.slice(separator + 1);
+  if (
+    serializedName !== trimHttpOws(serializedName) ||
+    serializedValue !== trimHttpOws(serializedValue)
+  ) {
+    return null;
+  }
+  const name = serializedName.toLowerCase();
+  if (!HTTP_TOKEN.test(name) || serializedValue === "") return null;
+  if (HTTP_TOKEN.test(serializedValue)) {
+    return { name, quoted: false, value: serializedValue.toLowerCase() };
+  }
+  if (
+    serializedValue.length < 2 ||
+    serializedValue[0] !== '"' ||
+    serializedValue.at(-1) !== '"'
+  ) {
+    return null;
+  }
+
+  let parsedValue = "";
+  for (let index = 1; index < serializedValue.length - 1; index += 1) {
+    const character = serializedValue[index]!;
+    if (character === "\\") {
+      index += 1;
+      if (index >= serializedValue.length - 1) return null;
+      parsedValue += serializedValue[index]!;
+    } else if (character === '"' || /[\u0000-\u001f\u007f]/.test(character)) {
+      return null;
+    } else {
+      parsedValue += character;
+    }
+  }
+
+  return { name, quoted: true, value: parsedValue.toLowerCase() };
+}
+
+type AcceptMediaRange = {
+  mediaParameters: HttpParameter[];
+  quality: number;
+  subtype: string;
+  type: string;
+};
+
+function parseAcceptMediaRanges(request: Request): AcceptMediaRange[] {
+  const serializedAccept = request.headers.get("Accept") || "*/*";
+  return splitOutsideQuotes(serializedAccept, ",").flatMap((range) => {
+    const [serializedMediaType, ...serializedParameters] =
+      splitOutsideQuotes(range, ";");
+    const mediaType = serializedMediaType
+      ? trimHttpOws(serializedMediaType).toLowerCase()
+      : undefined;
+    if (!mediaType) return [];
+    const mediaTypeParts = mediaType.split("/");
+    if (
+      mediaTypeParts.length !== 2 ||
+      !mediaTypeParts.every((part) => HTTP_TOKEN.test(part))
+    ) {
+      return [];
+    }
+    const type = mediaTypeParts[0]!;
+    const subtype = mediaTypeParts[1]!;
+    if (type === "*" && subtype !== "*") return [];
+
+    const parameters = serializedParameters
+      .filter((parameter) => trimHttpOws(parameter) !== "")
+      .map(parseHttpParameter);
+    if (parameters.some((parameter) => parameter === null)) return [];
+    const parsedParameters = parameters as HttpParameter[];
+    const qualityIndexes = parsedParameters.flatMap((parameter, index) =>
+      parameter.name === "q" ? [index] : [],
+    );
+    if (qualityIndexes.length > 1) return [];
+    const qualityIndex = qualityIndexes[0] ?? -1;
+    const qualityParameter =
+      qualityIndex === -1 ? undefined : parsedParameters[qualityIndex];
+    const serializedQuality = qualityParameter?.value ?? "1";
+    const quality =
+      !qualityParameter?.quoted &&
+      /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.test(serializedQuality)
+        ? Number(serializedQuality)
+        : 0;
+    const mediaParameters = parsedParameters.filter(
+      (parameter) => parameter.name !== "q",
+    );
+    const parameterNames = new Set(
+      mediaParameters.map((parameter) => parameter.name),
+    );
+    if (parameterNames.size !== mediaParameters.length) return [];
+    return [{ type, subtype, quality, mediaParameters }];
+  });
+}
+
+function acceptedQuality(
+  request: Request,
+  candidate: string,
+  requireExplicitRange = false,
+): number {
+  const [candidateType, candidateSubtype] = candidate.split("/");
+  const representationParameters = new Map([["charset", "utf-8"]]);
+  let bestMediaSpecificity = -1;
+  let bestParameterSpecificity = -1;
+  let quality = 0;
+
+  for (const requested of parseAcceptMediaRanges(request)) {
+    if (
+      (requireExplicitRange &&
+        (requested.type !== candidateType ||
+          requested.subtype !== candidateSubtype)) ||
+      (requested.type !== "*" && requested.type !== candidateType) ||
+      (requested.subtype !== "*" && requested.subtype !== candidateSubtype) ||
+      requested.mediaParameters.some(
+        (parameter) =>
+          representationParameters.get(parameter.name) !== parameter.value,
+      )
+    ) {
+      continue;
+    }
+
+    const mediaSpecificity =
+      Number(requested.type !== "*") +
+      Number(requested.subtype !== "*");
+    const parameterSpecificity = requested.mediaParameters.length;
+    if (
+      mediaSpecificity > bestMediaSpecificity ||
+      (mediaSpecificity === bestMediaSpecificity &&
+        parameterSpecificity > bestParameterSpecificity)
+    ) {
+      bestMediaSpecificity = mediaSpecificity;
+      bestParameterSpecificity = parameterSpecificity;
+      quality = requested.quality;
+    } else if (
+      mediaSpecificity === bestMediaSpecificity &&
+      parameterSpecificity === bestParameterSpecificity
+    ) {
+      quality = Math.max(quality, requested.quality);
+    }
+  }
+
+  return quality;
+}
+
+function acceptedJsonGraphqlMediaType(
+  request: Request,
+): JsonGraphqlMediaType | null {
+  const { graphqlQuality, jsonQuality } = acceptedJsonGraphqlQualities(request);
+  if (graphqlQuality <= 0 && jsonQuality <= 0) return null;
+  return jsonQuality > graphqlQuality
+    ? "application/json"
+    : "application/graphql-response+json";
+}
+
+function acceptedJsonGraphqlQualities(request: Request): {
+  graphqlQuality: number;
+  jsonQuality: number;
+} {
+  const graphqlQuality = acceptedQuality(
+    request,
+    "application/graphql-response+json",
+  );
+  const jsonQuality = acceptedQuality(request, "application/json");
+  return { graphqlQuality, jsonQuality };
+}
+
+function servesDevelopmentGraphiql(request: Request): boolean {
+  const url = new URL(request.url);
+  const htmlQuality = acceptedQuality(request, "text/html", true);
+  const { graphqlQuality, jsonQuality } =
+    acceptedJsonGraphqlQualities(request);
+  return (
+    !isProd &&
+    request.method === "GET" &&
+    url.search === "" &&
+    htmlQuality > 0 &&
+    htmlQuality >= Math.max(graphqlQuality, jsonQuality)
+  );
+}
+
+function normalizeGraphqlResponseNegotiation(request: Request): Request {
+  const servesGraphiql = servesDevelopmentGraphiql(request);
+  const mediaType = acceptedJsonGraphqlMediaType(request);
+  if (!servesGraphiql && mediaType === null) return request;
+
+  const headers = new Headers(request.headers);
+  headers.set("Accept", servesGraphiql ? "text/html" : mediaType!);
+  return new Request(request, { headers });
 }
 
 async function boundedPostRequest(request: Request): Promise<Request | null> {
@@ -491,6 +800,16 @@ const requestBudgetPlugin: Plugin<GraphQLContext> = {
   },
 };
 
+const jsonResultProcessorPlugin: Plugin<GraphQLContext> = {
+  onResultProcess({ request, setResultProcessor }) {
+    setResultProcessor(
+      processRegularResult,
+      acceptedJsonGraphqlMediaType(request) ??
+        "application/graphql-response+json",
+    );
+  },
+};
+
 const yoga = createYoga<
   { request: Request },
   GraphQLContext
@@ -503,7 +822,7 @@ const yoga = createYoga<
   cors: false,
   multipart: false,
   parserAndValidationCache: { validationCache: false },
-  plugins: [requestBudgetPlugin],
+  plugins: [requestBudgetPlugin, jsonResultProcessorPlugin],
   context: async (): Promise<GraphQLContext> => ({
     getSql,
   }),
@@ -573,7 +892,9 @@ function responseAllowsSharedCaching(response: Response): boolean {
 }
 
 async function handle(request: Request): Promise<Response> {
-  const response = await yoga.fetch(request);
+  const response = await yoga.fetch(
+    normalizeGraphqlResponseNegotiation(request),
+  );
   const inspected = await inspectGraphqlResponse(response);
   const url = new URL(request.url);
   const query = request.method === "GET" ? url.searchParams.get("query") : null;
@@ -591,6 +912,9 @@ async function handle(request: Request): Promise<Response> {
   if (inspected.rewritten) headers.delete("Content-Length");
   appendVary(headers, "Accept", "Content-Type", "Cookie", "Authorization");
   addCorsHeaders(request, headers);
+  if (servesDevelopmentGraphiql(request)) {
+    headers.set("Content-Type", "text/html; charset=utf-8");
+  }
   // Ensure JSON Content-Type for GraphQL responses (Yoga usually sets this).
   if (!headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json; charset=utf-8");
@@ -608,6 +932,17 @@ export async function GET(request: Request): Promise<Response> {
     return forbiddenCorsResponse();
   }
   const url = new URL(request.url);
+  const servesGraphiql = servesDevelopmentGraphiql(request);
+  if (
+    !servesGraphiql &&
+    acceptedJsonGraphqlMediaType(request) === null
+  ) {
+    return graphqlErrorResponse(
+      request,
+      406,
+      "Only JSON GraphQL responses are supported.",
+    );
+  }
   if (url.search.length > MAX_GRAPHQL_REQUEST_BYTES) {
     return graphqlErrorResponse(request, 413, "GraphQL request is too large.");
   }
@@ -633,12 +968,27 @@ export async function POST(request: Request): Promise<Response> {
   if (!hasAllowedOrigin(request)) {
     return forbiddenCorsResponse();
   }
+  if (acceptedJsonGraphqlMediaType(request) === null) {
+    return graphqlErrorResponse(
+      request,
+      406,
+      "Only JSON GraphQL responses are supported.",
+    );
+  }
+  if (inspectContentType(request).kind === "invalid") {
+    return graphqlErrorResponse(
+      request,
+      415,
+      "Unsupported GraphQL Content-Type.",
+    );
+  }
   const boundedRequest = await boundedPostRequest(request);
   if (!boundedRequest) {
     return graphqlErrorResponse(request, 413, "GraphQL request is too large.");
   }
-  if (isFormEncodedRequest(boundedRequest)) {
-    const searchParams = new URLSearchParams(await boundedRequest.clone().text());
+  const normalizedRequest = normalizeGraphqlPostContentType(boundedRequest);
+  if (isFormEncodedRequest(normalizedRequest)) {
+    const searchParams = new URLSearchParams(await normalizedRequest.clone().text());
     if (!hasValidSerializedObject(searchParams, "variables")) {
       return graphqlErrorResponse(
         request,
@@ -654,7 +1004,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
   }
-  return handle(boundedRequest);
+  return handle(normalizedRequest);
 }
 
 export async function OPTIONS(request: Request): Promise<Response> {

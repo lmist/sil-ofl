@@ -539,6 +539,9 @@ describe("GraphQL HTTP policy", () => {
     delete process.env.DATABASE_URL;
 
     try {
+      const contentTypes = [
+        "application/x-www-form-urlencoded; charset=UTF-8",
+      ];
       const invalidVariables = [
         '{"id":',
         "[]",
@@ -546,33 +549,44 @@ describe("GraphQL HTTP policy", () => {
         "1",
         "true",
       ];
-      for (const variables of invalidVariables) {
-        const response = await POST(
-          request(endpoint, {
-            method: "POST",
-            headers: {
-              Accept: "application/graphql-response+json",
-              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            },
-            body: new URLSearchParams({
-              query: 'query Font($id: ID! = "1") { font(id: $id) { id } }',
-              variables,
+      for (const contentType of contentTypes) {
+        for (const variables of invalidVariables) {
+          const response = await POST(
+            request(endpoint, {
+              method: "POST",
+              headers: {
+                Accept: "application/graphql-response+json",
+                "Content-Type": contentType,
+              },
+              body: new URLSearchParams({
+                query: 'query Font($id: ID! = "1") { font(id: $id) { id } }',
+                variables,
+              }),
             }),
-          }),
-        );
-        const result = (await response.json()) as {
-          errors?: Array<{ message?: string; extensions?: unknown }>;
-        };
+          );
+          const result = (await response.json()) as {
+            errors?: Array<{ message?: string; extensions?: unknown }>;
+          };
 
-        assert.equal(response.status, 400, variables);
-        assert.equal(response.headers.get("Cache-Control"), "private, no-store");
-        assert.deepEqual(result, {
-          errors: [
+          const caseLabel = `${contentType}: ${variables}`;
+          assert.equal(response.status, 400, caseLabel);
+          assert.equal(
+            response.headers.get("Cache-Control"),
+            "private, no-store",
+            caseLabel,
+          );
+          assert.deepEqual(
+            result,
             {
-              message: "GraphQL variables must be a JSON object or null.",
+              errors: [
+                {
+                  message: "GraphQL variables must be a JSON object or null.",
+                },
+              ],
             },
-          ],
-        });
+            caseLabel,
+          );
+        }
       }
     } finally {
       if (databaseUrl === undefined) {
@@ -588,6 +602,7 @@ describe("GraphQL HTTP policy", () => {
     delete process.env.DATABASE_URL;
 
     try {
+      const contentTypes = ["application/x-www-form-urlencoded"];
       const invalidExtensions = [
         '{"persistedQuery":',
         "[]",
@@ -595,33 +610,44 @@ describe("GraphQL HTTP policy", () => {
         "1",
         "true",
       ];
-      for (const extensions of invalidExtensions) {
-        const response = await POST(
-          request(endpoint, {
-            method: "POST",
-            headers: {
-              Accept: "application/graphql-response+json",
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: new URLSearchParams({
-              query: '{ font(id: "1") { id } }',
-              extensions,
+      for (const contentType of contentTypes) {
+        for (const extensions of invalidExtensions) {
+          const response = await POST(
+            request(endpoint, {
+              method: "POST",
+              headers: {
+                Accept: "application/graphql-response+json",
+                "Content-Type": contentType,
+              },
+              body: new URLSearchParams({
+                query: '{ font(id: "1") { id } }',
+                extensions,
+              }),
             }),
-          }),
-        );
-        const result = (await response.json()) as {
-          errors?: Array<{ message?: string; extensions?: unknown }>;
-        };
+          );
+          const result = (await response.json()) as {
+            errors?: Array<{ message?: string; extensions?: unknown }>;
+          };
 
-        assert.equal(response.status, 400, extensions);
-        assert.equal(response.headers.get("Cache-Control"), "private, no-store");
-        assert.deepEqual(result, {
-          errors: [
+          const caseLabel = `${contentType}: ${extensions}`;
+          assert.equal(response.status, 400, caseLabel);
+          assert.equal(
+            response.headers.get("Cache-Control"),
+            "private, no-store",
+            caseLabel,
+          );
+          assert.deepEqual(
+            result,
             {
-              message: "GraphQL extensions must be a JSON object or null.",
+              errors: [
+                {
+                  message: "GraphQL extensions must be a JSON object or null.",
+                },
+              ],
             },
-          ],
-        });
+            caseLabel,
+          );
+        }
       }
     } finally {
       if (databaseUrl === undefined) {
@@ -671,6 +697,167 @@ describe("GraphQL HTTP policy", () => {
     }
   });
 
+  it("normalizes recognized POST media-type case and parameter whitespace", async () => {
+    const cases = [
+      {
+        contentType: "APPLICATION/X-WWW-FORM-URLENCODED",
+        body: new URLSearchParams({ query: "{ health { ok } }" }),
+      },
+      {
+        contentType:
+          "application/x-www-form-urlencoded ; charset=UTF-8",
+        body: new URLSearchParams({ query: "{ health { ok } }" }),
+      },
+      {
+        contentType: "APPLICATION/JSON",
+        body: JSON.stringify({ query: "{ health { ok } }" }),
+      },
+      {
+        contentType: "application/json ; charset=UTF-8",
+        body: JSON.stringify({ query: "{ health { ok } }" }),
+      },
+      {
+        contentType: 'application/json; charset="UTF-8"',
+        body: JSON.stringify({ query: "{ health { ok } }" }),
+      },
+      {
+        contentType: "APPLICATION/GRAPHQL+JSON",
+        body: JSON.stringify({ query: "{ health { ok } }" }),
+      },
+      {
+        contentType: "APPLICATION/GRAPHQL",
+        body: "{ health { ok } }",
+      },
+    ];
+
+    for (const { contentType, body } of cases) {
+      const response = await POST(
+        request(endpoint, {
+          method: "POST",
+          headers: {
+            Accept: "application/graphql-response+json",
+            "Content-Type": contentType,
+          },
+          body,
+        }),
+      );
+      const result = (await response.json()) as {
+        data?: { health?: { ok?: boolean } };
+      };
+
+      assert.equal(response.status, 200, contentType);
+      assert.equal(result.data?.health?.ok, true, contentType);
+      assert.equal(
+        response.headers.get("Cache-Control"),
+        "private, no-store",
+        contentType,
+      );
+    }
+  });
+
+  it("rejects combined Content-Type field values instead of choosing the first", async () => {
+    for (const contentType of [
+      "application/json, application/graphql",
+      "application/graphql, application/json",
+      "application/json, application/json",
+    ]) {
+      const response = await POST(
+        request(endpoint, {
+          method: "POST",
+          headers: {
+            Accept: "application/graphql-response+json",
+            "Content-Type": contentType,
+          },
+          body: JSON.stringify({ query: "{ health { ok } }" }),
+        }),
+      );
+
+      assert.equal(response.status, 415, contentType);
+      assert.deepEqual(
+        await response.json(),
+        {
+          errors: [{ message: "Unsupported GraphQL Content-Type." }],
+        },
+        contentType,
+      );
+    }
+
+    const bridgedHeaders = new Headers({
+      Accept: "application/graphql-response+json",
+    });
+    bridgedHeaders.append("Content-Type", 'application/json;profile="left');
+    bridgedHeaders.append(
+      "Content-Type",
+      'application/graphql;profile=right"',
+    );
+    const bridgedResponse = await POST(
+      request(endpoint, {
+        method: "POST",
+        headers: bridgedHeaders,
+        body: JSON.stringify({ query: "{ health { ok } }" }),
+      }),
+    );
+
+    assert.equal(bridgedResponse.status, 415);
+    assert.deepEqual(await bridgedResponse.json(), {
+      errors: [{ message: "Unsupported GraphQL Content-Type." }],
+    });
+  });
+
+  it("rejects unsupported GraphQL Content-Type parameters", async () => {
+    const response = await POST(
+      request(endpoint, {
+        method: "POST",
+        headers: {
+          Accept: "application/graphql-response+json",
+          "Content-Type": 'application/json; profile="catalog"',
+        },
+        body: JSON.stringify({ query: "{ health { ok } }" }),
+      }),
+    );
+
+    assert.equal(response.status, 415);
+    assert.deepEqual(await response.json(), {
+      errors: [{ message: "Unsupported GraphQL Content-Type." }],
+    });
+  });
+
+  it("rejects explicit non-UTF-8 GraphQL request charsets", async () => {
+    const cases = [
+      {
+        contentType:
+          "application/x-www-form-urlencoded; charset=iso-8859-1",
+        body: "query=%7B%20health%20%7B%20ok%20%7D%20%7D&variables=%7B%22unused%22%3A%22%E9%22%7D",
+      },
+      {
+        contentType: 'application/json; charset="utf-16"',
+        body: JSON.stringify({ query: "{ health { ok } }" }),
+      },
+    ];
+
+    for (const { contentType, body } of cases) {
+      const response = await POST(
+        request(endpoint, {
+          method: "POST",
+          headers: {
+            Accept: "application/graphql-response+json",
+            "Content-Type": contentType,
+          },
+          body,
+        }),
+      );
+
+      assert.equal(response.status, 415, contentType);
+      assert.deepEqual(
+        await response.json(),
+        {
+          errors: [{ message: "Unsupported GraphQL Content-Type." }],
+        },
+        contentType,
+      );
+    }
+  });
+
   it("rejects oversized POST bodies before GraphQL execution", async () => {
     const oversizedDocument = `{ health { ok } } # ${"x".repeat(70_000)}`;
     const response = await POST(
@@ -717,6 +904,155 @@ describe("GraphQL HTTP policy", () => {
     assert.equal(response.status, 413);
     assert.equal(result.errors?.[0]?.message, "GraphQL request is too large.");
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  });
+
+  it("applies JSON response negotiation before early request validation errors", async () => {
+    const unsupportedAccept = "text/event-stream";
+    const cases: Array<{
+      label: string;
+      send: () => Promise<Response>;
+    }> = [
+      {
+        label: "malformed GET variables",
+        send: () =>
+          GET(
+            request(
+              `${endpoint}?${new URLSearchParams({
+                query: "{ health { ok } }",
+                variables: "{",
+              })}`,
+              { headers: { Accept: unsupportedAccept } },
+            ),
+          ),
+      },
+      {
+        label: "oversized GET parameters",
+        send: () =>
+          GET(
+            request(
+              `${endpoint}?${new URLSearchParams({
+                query: `{ health { ok } } # ${"x".repeat(70_000)}`,
+              })}`,
+              { headers: { Accept: unsupportedAccept } },
+            ),
+          ),
+      },
+      {
+        label: "malformed form variables",
+        send: () =>
+          POST(
+            request(endpoint, {
+              method: "POST",
+              headers: {
+                Accept: unsupportedAccept,
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                query: "{ health { ok } }",
+                variables: "{",
+              }),
+            }),
+          ),
+      },
+      {
+        label: "oversized POST body",
+        send: () =>
+          POST(
+            request(endpoint, {
+              method: "POST",
+              headers: {
+                Accept: unsupportedAccept,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                query: `{ health { ok } } # ${"x".repeat(70_000)}`,
+              }),
+            }),
+          ),
+      },
+    ];
+
+    for (const { label, send } of cases) {
+      const response = await send();
+      assert.equal(response.status, 406, label);
+      assert.deepEqual(
+        await response.json(),
+        {
+          errors: [
+            {
+              message: "Only JSON GraphQL responses are supported.",
+            },
+          ],
+        },
+        label,
+      );
+    }
+  });
+
+  it("uses the selected JSON representation for early GraphQL errors", async () => {
+    const cases: Array<{
+      expectedStatus: number;
+      label: string;
+      send: () => Promise<Response>;
+    }> = [
+      {
+        expectedStatus: 400,
+        label: "malformed GET variables",
+        send: () =>
+          GET(
+            request(
+              `${endpoint}?${new URLSearchParams({
+                query: "{ health { ok } }",
+                variables: "{",
+              })}`,
+              { headers: { Accept: "application/json" } },
+            ),
+          ),
+      },
+      {
+        expectedStatus: 413,
+        label: "oversized GET parameters",
+        send: () =>
+          GET(
+            request(
+              `${endpoint}?${new URLSearchParams({
+                query: `{ health { ok } } # ${"x".repeat(70_000)}`,
+              })}`,
+              { headers: { Accept: "application/json" } },
+            ),
+          ),
+      },
+      {
+        expectedStatus: 415,
+        label: "unsupported POST charset",
+        send: () =>
+          POST(
+            request(endpoint, {
+              method: "POST",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json; charset=utf-16",
+              },
+              body: JSON.stringify({ query: "{ health { ok } }" }),
+            }),
+          ),
+      },
+    ];
+
+    for (const { expectedStatus, label, send } of cases) {
+      const response = await send();
+      assert.equal(response.status, expectedStatus, label);
+      assert.equal(
+        response.headers.get("Content-Type"),
+        "application/json; charset=utf-8",
+        label,
+      );
+      assert.equal(
+        response.headers.get("Cache-Control"),
+        "private, no-store",
+        label,
+      );
+    }
   });
 
   it("rejects repeated expensive root connections before database work", async () => {
@@ -1025,41 +1361,542 @@ describe("GraphQL HTTP policy", () => {
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
   });
 
-  it("does not reflect invalid GraphQL variable values", async () => {
+  it("does not reflect invalid GraphQL variable values in any negotiated encoding", async () => {
     const privateMarker = "private-variable-marker-7d2ca3";
-    const response = await POST(
+    const query = `
+      query InvalidPageSize($first: Int!) {
+        fonts(first: $first) { totalCount }
+      }
+    `;
+    const acceptCases = [
+      {
+        accept: "application/graphql-response+json",
+        status: 400,
+        mediaType: "application/graphql-response+json",
+      },
+      {
+        accept: "application/json",
+        status: 400,
+        mediaType: "application/json",
+      },
+      {
+        accept: 'application/json;charset="utf-8"',
+        status: 400,
+        mediaType: "application/json",
+      },
+      {
+        accept: "application/*",
+        status: 400,
+        mediaType: "application/graphql-response+json",
+      },
+      {
+        accept: "text/event-stream, application/graphql-response+json;q=0.5",
+        status: 400,
+        mediaType: "application/graphql-response+json",
+      },
+      {
+        accept: "text/*, application/*",
+        status: 400,
+        mediaType: "application/graphql-response+json",
+      },
+      {
+        accept: "text/html, application/json",
+        status: 400,
+        mediaType: "application/json",
+      },
+      {
+        accept:
+          "application/graphql-response+json;q=0, application/json;q=1",
+        status: 400,
+        mediaType: "application/json",
+      },
+      {
+        accept:
+          "application/graphql-response+json;q=0.4, application/json;q=0.8",
+        status: 400,
+        mediaType: "application/json",
+      },
+      { accept: "text/event-stream", status: 406 },
+      { accept: "multipart/mixed", status: 406 },
+      { accept: "text/event-stream;q=0", status: 406 },
+      { accept: "multipart/mixed;q=0.000", status: 406 },
+      { accept: "text/*", status: 406 },
+      { accept: "multipart/*", status: 406 },
+      { accept: "text / event-stream", status: 406 },
+      { accept: "text/ event-stream", status: 406 },
+      { accept: "text/event - stream", status: 406 },
+      { accept: "multipart / mixed", status: 406 },
+      { accept: "text/html", status: 406 },
+      { accept: "application/graphql-response+json;q=0", status: 406 },
+      { accept: "application/json;q=0", status: 406 },
+      { accept: "*/*;q=0", status: 406 },
+    ];
+
+    for (const method of ["GET", "POST"] as const) {
+      for (const { accept, status, mediaType } of acceptCases) {
+        const response =
+          method === "GET"
+            ? await GET(
+                request(
+                  `${endpoint}?${new URLSearchParams({
+                    query,
+                    variables: JSON.stringify({ first: privateMarker }),
+                  })}`,
+                  { headers: { Accept: accept } },
+                ),
+              )
+            : await POST(
+                request(endpoint, {
+                  method: "POST",
+                  headers: {
+                    Accept: accept,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    query,
+                    variables: { first: privateMarker },
+                  }),
+                }),
+              );
+        const serialized = await response.text();
+        const caseLabel = `${method} ${accept}`;
+
+        assert.equal(response.status, status, caseLabel);
+        assert.doesNotMatch(
+          serialized,
+          new RegExp(privateMarker),
+          caseLabel,
+        );
+        assert.match(
+          response.headers.get("Content-Type") ?? "",
+          /^(?:application\/graphql-response\+json|application\/json)\b/i,
+          caseLabel,
+        );
+        if (mediaType) {
+          assert.equal(
+            response.headers.get("Content-Type")?.split(";")[0],
+            mediaType,
+            caseLabel,
+          );
+        }
+        const expected =
+          status === 400
+            ? {
+                errors: [
+                  {
+                    message: "GraphQL variables contain invalid values.",
+                    locations: [{ line: 2, column: 29 }],
+                    extensions: { code: "BAD_USER_INPUT" },
+                  },
+                ],
+              }
+            : {
+                errors: [
+                  {
+                    message: "Only JSON GraphQL responses are supported.",
+                  },
+                ],
+              };
+        assert.deepEqual(JSON.parse(serialized), expected, caseLabel);
+        assert.equal(
+          response.headers.get("Cache-Control"),
+          "private, no-store",
+          caseLabel,
+        );
+      }
+    }
+  });
+
+  it("requires JSON negotiation for a bare non-GraphiQL GET", async () => {
+    const response = await GET(
+      request(endpoint, {
+        headers: { Accept: "text/*" },
+      }),
+    );
+
+    assert.equal(response.status, 406);
+    assert.deepEqual(await response.json(), {
+      errors: [
+        {
+          message: "Only JSON GraphQL responses are supported.",
+        },
+      ],
+    });
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  });
+
+  it("does not split an Accept list at commas inside quoted parameters", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    const response = await GET(
+      request(`${endpoint}?query=${query}`, {
+        headers: {
+          Accept: 'application/json;profile="x,y";q=0',
+        },
+      }),
+    );
+
+    assert.equal(response.status, 406);
+    assert.deepEqual(await response.json(), {
+      errors: [
+        {
+          message: "Only JSON GraphQL responses are supported.",
+        },
+      ],
+    });
+  });
+
+  it("honors a more specific media-parameter exclusion over a generic range", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    for (const accept of [
+      "application/json; charset=utf-8;q=0, application/json;q=1",
+      "application/*;charset=utf-8;q=1, application/json;q=0, application/graphql-response+json;q=0",
+    ]) {
+      const response = await GET(
+        request(`${endpoint}?query=${query}`, {
+          headers: { Accept: accept },
+        }),
+      );
+
+      assert.equal(response.status, 406, accept);
+      assert.deepEqual(
+        await response.json(),
+        {
+          errors: [
+            {
+              message: "Only JSON GraphQL responses are supported.",
+            },
+          ],
+        },
+        accept,
+      );
+    }
+  });
+
+  it("keeps media parameters after q in Accept representation matching", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    for (const accept of [
+      "application/json;q=0;charset=utf-8, application/json;q=1, application/graphql-response+json;q=0",
+      "application/json;q=1;charset=iso-8859-1, application/graphql-response+json;q=0",
+    ]) {
+      const response = await GET(
+        request(`${endpoint}?query=${query}`, {
+          headers: { Accept: accept },
+        }),
+      );
+
+      assert.equal(response.status, 406, accept);
+      assert.deepEqual(
+        await response.json(),
+        {
+          errors: [
+            {
+              message: "Only JSON GraphQL responses are supported.",
+            },
+          ],
+        },
+        accept,
+      );
+    }
+  });
+
+  it("rejects syntactically invalid Accept media ranges", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+
+    for (const accept of [
+      "*/json",
+      "*/graphql-response+json",
+      "application / json",
+    ]) {
+      const response = await GET(
+        request(`${endpoint}?query=${query}`, {
+          headers: { Accept: accept },
+        }),
+      );
+
+      assert.equal(response.status, 406, accept);
+      assert.deepEqual(
+        await response.json(),
+        {
+          errors: [
+            {
+              message: "Only JSON GraphQL responses are supported.",
+            },
+          ],
+        },
+        accept,
+      );
+    }
+  });
+
+  it("normalizes only HTTP OWS in Accept ranges and parameters", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    for (const accept of [
+      "\u00a0application/json",
+      "application/json;\u00a0q=1",
+    ]) {
+      const response = await GET(
+        request(`${endpoint}?query=${query}`, {
+          headers: { Accept: accept },
+        }),
+      );
+      assert.equal(response.status, 406, JSON.stringify(accept));
+    }
+
+    const response = await GET(
+      request(`${endpoint}?query=${query}`, {
+        headers: { Accept: " \tapplication/json \t; \tq=1" },
+      }),
+    );
+    const result = (await response.json()) as {
+      data?: { health?: { ok?: boolean } };
+    };
+    assert.equal(response.status, 200);
+    assert.equal(result.data?.health?.ok, true);
+  });
+
+  it("accepts empty HTTP parameter slots but rejects malformed parameters", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    for (const accept of [
+      "application/json;",
+      "application/json;;",
+      "application/json;;q=1;",
+    ]) {
+      const response = await GET(
+        request(`${endpoint}?query=${query}`, {
+          headers: { Accept: accept },
+        }),
+      );
+      const result = (await response.json()) as {
+        data?: { health?: { ok?: boolean } };
+      };
+      assert.equal(response.status, 200, accept);
+      assert.equal(result.data?.health?.ok, true, accept);
+    }
+
+    const malformedAcceptResponse = await GET(
+      request(`${endpoint}?query=${query}`, {
+        headers: { Accept: "application/json;=broken" },
+      }),
+    );
+    assert.equal(malformedAcceptResponse.status, 406);
+
+    for (const contentType of [
+      "application/json;",
+      "application/json;; charset=UTF-8;",
+    ]) {
+      const response = await POST(
+        request(endpoint, {
+          method: "POST",
+          headers: {
+            Accept: "application/graphql-response+json",
+            "Content-Type": contentType,
+          },
+          body: JSON.stringify({ query: "{ health { ok } }" }),
+        }),
+      );
+      const result = (await response.json()) as {
+        data?: { health?: { ok?: boolean } };
+      };
+      assert.equal(response.status, 200, contentType);
+      assert.equal(result.data?.health?.ok, true, contentType);
+    }
+
+    const malformedContentTypeResponse = await POST(
       request(endpoint, {
         method: "POST",
         headers: {
           Accept: "application/graphql-response+json",
-          "Content-Type": "application/json",
+          "Content-Type": "application/json;=broken",
         },
-        body: JSON.stringify({
-          query: `
-            query InvalidPageSize($first: Int!) {
-              fonts(first: $first) { totalCount }
-            }
-          `,
-          variables: { first: privateMarker },
-        }),
+        body: JSON.stringify({ query: "{ health { ok } }" }),
       }),
     );
-    const result = (await response.json()) as {
-      errors?: Array<{ message?: string }>;
-    };
+    assert.equal(malformedContentTypeResponse.status, 415);
+  });
 
-    assert.equal(response.status, 400);
-    assert.deepEqual(result, {
-      errors: [
-        {
-          message: "GraphQL variables contain invalid values.",
-          locations: [{ line: 2, column: 35 }],
-          extensions: { code: "BAD_USER_INPUT" },
-        },
-      ],
+  it("rejects quoted Accept quality values for JSON and GraphiQL", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    const requests = [
+      request(`${endpoint}?query=${query}`, {
+        headers: { Accept: 'application/json;q="1"' },
+      }),
+      request(endpoint, {
+        headers: { Accept: 'text/html;q="1"' },
+      }),
+    ];
+
+    for (const invalidRequest of requests) {
+      const response = await GET(invalidRequest);
+      assert.equal(
+        response.status,
+        406,
+        invalidRequest.headers.get("Accept") ?? "missing Accept",
+      );
+      assert.deepEqual(await response.json(), {
+        errors: [
+          {
+            message: "Only JSON GraphQL responses are supported.",
+          },
+        ],
+      });
+    }
+  });
+
+  it("rejects whitespace around the Accept quality equals sign", async () => {
+    const query = encodeURIComponent("{ health { ok } }");
+    const malformedVariables = new URLSearchParams({
+      query: "{ health { ok } }",
+      variables: "{",
     });
-    assert.doesNotMatch(JSON.stringify(result), new RegExp(privateMarker));
+    const requests = [
+      request(`${endpoint}?query=${query}`, {
+        headers: { Accept: "application/json; q = 1" },
+      }),
+      request(endpoint, {
+        headers: { Accept: "text/html; q = 1" },
+      }),
+      request(`${endpoint}?${malformedVariables}`, {
+        headers: {
+          Accept: "text/event-stream, application/json; q = 1",
+        },
+      }),
+    ];
+
+    for (const invalidRequest of requests) {
+      const response = await GET(invalidRequest);
+      assert.equal(
+        response.status,
+        406,
+        invalidRequest.headers.get("Accept") ?? "missing Accept",
+      );
+      assert.deepEqual(await response.json(), {
+        errors: [
+          {
+            message: "Only JSON GraphQL responses are supported.",
+          },
+        ],
+      });
+    }
+  });
+
+  it("preserves the non-production GraphiQL HTML entry point", async () => {
+    const response = await GET(
+      request(endpoint, {
+        headers: { Accept: "text/html" },
+      }),
+    );
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("Content-Type") ?? "", /^text\/html\b/);
+    assert.match(html, /GraphiQL/);
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  });
+
+  it("negotiates the development GraphiQL entry point as an HTML representation", async () => {
+    const excludedHtmlResponse = await GET(
+      request(endpoint, {
+        headers: { Accept: "text/html;q=0" },
+      }),
+    );
+    assert.equal(excludedHtmlResponse.status, 406);
+
+    const uppercaseHtmlResponse = await GET(
+      request(endpoint, {
+        headers: { Accept: "TEXT/HTML" },
+      }),
+    );
+    assert.equal(uppercaseHtmlResponse.status, 200);
+    assert.match(
+      uppercaseHtmlResponse.headers.get("Content-Type") ?? "",
+      /^text\/html\b/,
+    );
+    assert.match(await uppercaseHtmlResponse.text(), /GraphiQL/);
+
+    const quotedSubstringResponse = await GET(
+      request(endpoint, {
+        headers: {
+          Accept: 'application/json;profile="text/html"',
+        },
+      }),
+    );
+    assert.equal(quotedSubstringResponse.status, 406);
+    assert.match(
+      quotedSubstringResponse.headers.get("Content-Type") ?? "",
+      /^application\/graphql-response\+json\b/,
+    );
+  });
+
+  it("declares the negotiated UTF-8 GraphiQL representation", async () => {
+    const acceptedResponse = await GET(
+      request(endpoint, {
+        headers: { Accept: "text/html;charset=utf-8" },
+      }),
+    );
+    assert.equal(acceptedResponse.status, 200);
+    assert.equal(
+      acceptedResponse.headers.get("Content-Type"),
+      "text/html; charset=utf-8",
+    );
+    assert.match(await acceptedResponse.text(), /GraphiQL/);
+
+    const excludedResponse = await GET(
+      request(endpoint, {
+        headers: {
+          Accept: "text/html;charset=utf-8;q=0, text/html;q=1",
+        },
+      }),
+    );
+    assert.equal(excludedResponse.status, 406);
+  });
+
+  it("selects the highest-quality bare development representation", async () => {
+    const cases = [
+      {
+        accept: "application/json;q=1, text/html;q=0.1",
+        mediaType: "application/json",
+        graphiql: false,
+      },
+      {
+        accept: "application/json;q=0.1, text/html;q=1",
+        mediaType: "text/html",
+        graphiql: true,
+      },
+      {
+        accept: "application/json;q=1, text/html;q=1",
+        mediaType: "text/html",
+        graphiql: true,
+      },
+    ];
+
+    for (const { accept, graphiql, mediaType } of cases) {
+      const response = await GET(
+        request(endpoint, {
+          headers: { Accept: accept },
+        }),
+      );
+      const body = await response.text();
+
+      assert.equal(response.status, 200, accept);
+      assert.equal(
+        response.headers.get("Content-Type")?.split(";")[0],
+        mediaType,
+        accept,
+      );
+      if (graphiql) {
+        assert.match(body, /GraphiQL/, accept);
+      } else {
+        assert.doesNotMatch(body, /GraphiQL/, accept);
+        assert.deepEqual(JSON.parse(body), {
+          errors: [
+            {
+              message: "Must provide query string.",
+              extensions: { code: "BAD_REQUEST" },
+            },
+          ],
+        });
+      }
+    }
   });
 
   it("masks database configuration failures", async () => {
