@@ -544,6 +544,66 @@ describe("GraphQL HTTP policy", () => {
     assert.equal(response.headers.get("Cache-Control"), "private, no-store");
   });
 
+  it("bounds repeated fragment DAG traversal before resolver work", async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+
+    try {
+      const fragmentDepth = 12;
+      const fragments = Array.from(
+        { length: fragmentDepth },
+        (_, index) => `
+          fragment BudgetFragment${index} on Query {
+            ...BudgetFragment${index + 1}
+            ...BudgetFragment${index + 1}
+          }
+        `,
+      );
+      fragments.push(`
+        fragment BudgetFragment${fragmentDepth} on Query {
+          ...MissingBudgetLeaf
+        }
+      `);
+      const params = new URLSearchParams({
+        query: `
+          query FragmentDagBudget {
+            fonts(first: 1) { totalCount }
+            ...BudgetFragment0
+          }
+          ${fragments.join("\n")}
+        `,
+      });
+      const response = await GET(
+        request(`${endpoint}?${params}`, {
+          headers: { Accept: "application/graphql-response+json" },
+        }),
+      );
+      const result = (await response.json()) as {
+        errors?: Array<{
+          message?: string;
+          extensions?: { code?: string };
+        }>;
+      };
+
+      assert.equal(response.status, 400);
+      assert.ok(
+        result.errors?.some(
+          (error) =>
+            error.extensions?.code === "OPERATION_BUDGET_EXCEEDED" &&
+            error.message === "GraphQL operation exceeds request budget.",
+        ),
+      );
+      assert.doesNotMatch(JSON.stringify(result), /DATABASE_URL|Neon/i);
+      assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+    } finally {
+      if (databaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = databaseUrl;
+      }
+    }
+  });
+
   it("applies the budget separately to each selected operation", async () => {
     const document = `
       query Safe { health { ok } }

@@ -20,6 +20,7 @@ const MAX_ALIASES = 20;
 const MAX_DEPTH = 16;
 const MAX_EXPENSIVE_ROOT_CONNECTIONS = 2;
 const MAX_FIELD_SELECTIONS = 250;
+const MAX_SELECTION_VISITS = 1_000;
 const CORS_METHODS = ["GET", "POST", "OPTIONS"] as const;
 const CORS_HEADERS = ["Accept", "Content-Type"] as const;
 const CORS_METHOD_SET: ReadonlySet<string> = new Set(CORS_METHODS);
@@ -282,7 +283,18 @@ type OperationBudget = {
   expensiveRootConnections: number;
   fields: number;
   maxDepth: number;
+  selections: number;
 };
+
+function exceedsOperationBudget(budget: OperationBudget): boolean {
+  return (
+    budget.aliases > MAX_ALIASES ||
+    budget.expensiveRootConnections > MAX_EXPENSIVE_ROOT_CONNECTIONS ||
+    budget.fields > MAX_FIELD_SELECTIONS ||
+    budget.maxDepth > MAX_DEPTH ||
+    budget.selections > MAX_SELECTION_VISITS
+  );
+}
 
 function measureOperation(
   document: DocumentNode,
@@ -297,13 +309,27 @@ function measureOperation(
   let aliases = 0;
   let fields = 0;
   let maxDepth = 0;
+  let selections = 0;
 
   function collect(
     selectionSet: SelectionSetNode,
     depth: number,
     fragmentPath: ReadonlySet<string>,
-  ): void {
+  ): boolean {
     for (const selection of selectionSet.selections) {
+      selections += 1;
+      if (
+        exceedsOperationBudget({
+          aliases,
+          expensiveRootConnections: connectionResponseKeys.size,
+          fields,
+          maxDepth,
+          selections,
+        })
+      ) {
+        return true;
+      }
+
       if (selection.kind === Kind.FIELD) {
         fields += 1;
         if (selection.alias) aliases += 1;
@@ -313,22 +339,42 @@ function measureOperation(
             selection.alias?.value ?? selection.name.value,
           );
         }
+        if (
+          exceedsOperationBudget({
+            aliases,
+            expensiveRootConnections: connectionResponseKeys.size,
+            fields,
+            maxDepth,
+            selections,
+          })
+        ) {
+          return true;
+        }
         if (selection.selectionSet) {
-          collect(selection.selectionSet, depth + 1, fragmentPath);
+          if (collect(selection.selectionSet, depth + 1, fragmentPath)) {
+            return true;
+          }
         }
       } else if (selection.kind === Kind.INLINE_FRAGMENT) {
-        collect(selection.selectionSet, depth, fragmentPath);
+        if (collect(selection.selectionSet, depth, fragmentPath)) {
+          return true;
+        }
       } else if (!fragmentPath.has(selection.name.value)) {
         const fragment = fragments.get(selection.name.value);
         if (fragment) {
-          collect(
-            fragment.selectionSet,
-            depth,
-            new Set(fragmentPath).add(selection.name.value),
-          );
+          if (
+            collect(
+              fragment.selectionSet,
+              depth,
+              new Set(fragmentPath).add(selection.name.value),
+            )
+          ) {
+            return true;
+          }
         }
       }
     }
+    return false;
   }
 
   collect(operation.selectionSet, 1, new Set());
@@ -337,6 +383,7 @@ function measureOperation(
     expensiveRootConnections: connectionResponseKeys.size,
     fields,
     maxDepth,
+    selections,
   };
 }
 
@@ -350,10 +397,7 @@ function operationBudgetRule(
 
       const budget = measureOperation(document, operation);
       if (
-        budget.aliases > MAX_ALIASES ||
-        budget.expensiveRootConnections > MAX_EXPENSIVE_ROOT_CONNECTIONS ||
-        budget.fields > MAX_FIELD_SELECTIONS ||
-        budget.maxDepth > MAX_DEPTH
+        exceedsOperationBudget(budget)
       ) {
         context.reportError(
           new GraphQLError("GraphQL operation exceeds request budget.", {
