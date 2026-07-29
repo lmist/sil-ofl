@@ -131,4 +131,69 @@ describe("loadFontFace", () => {
       restoreGlobal("FontFace", originalFontFace);
     }
   });
+
+  it("keeps replacement and clear non-throwing when face deletion fails", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "document",
+    );
+    const originalFontFace = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "FontFace",
+    );
+    const added: FontFace[] = [];
+    let deleteAttempts = 0;
+
+    class FakeFontFace {
+      async load(): Promise<FontFace> {
+        return this as unknown as FontFace;
+      }
+    }
+
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        fonts: {
+          add: (face: FontFace) => {
+            added.push(face);
+          },
+          delete: () => {
+            deleteAttempts += 1;
+            throw new TypeError("Foreign FontFace");
+          },
+        },
+      },
+    });
+    Object.defineProperty(globalThis, "FontFace", {
+      configurable: true,
+      value: FakeFontFace,
+    });
+
+    try {
+      await loadFontFace({
+        family: "Resilient Family",
+        cdnUrl:
+          "https://cdn.jsdelivr.net/gh/example/fonts@main/first.woff2",
+        format: "woff2",
+      });
+
+      await assert.doesNotReject(
+        loadFontFace({
+          family: "Resilient Family",
+          cdnUrl:
+            "https://cdn.jsdelivr.net/gh/example/fonts@main/second.woff2",
+          format: "woff2",
+        }),
+      );
+      assert.equal(added.length, 2);
+      assert.doesNotThrow(() => clearRegisteredFontFace());
+      assert.equal(deleteAttempts, 2);
+    } finally {
+      try {
+        clearRegisteredFontFace();
+      } catch {}
+      restoreGlobal("document", originalDocument);
+      restoreGlobal("FontFace", originalFontFace);
+    }
+  });
 });

@@ -20,15 +20,26 @@ export type LoadFontFaceOutput = {
 
 let registeredFontFace: FontFace | null = null;
 
-export function clearRegisteredFontFace(): void {
+function deleteFontFace(face: FontFace): void {
   if (
-    registeredFontFace &&
-    typeof document !== "undefined" &&
-    document.fonts
+    typeof document === "undefined" ||
+    !document.fonts ||
+    typeof document.fonts.delete !== "function"
   ) {
-    document.fonts.delete(registeredFontFace);
+    return;
   }
+
+  try {
+    document.fonts.delete(face);
+  } catch {
+    return;
+  }
+}
+
+export function clearRegisteredFontFace(): void {
+  const face = registeredFontFace;
   registeredFontFace = null;
+  if (face) deleteFontFace(face);
 }
 
 function formatHint(format: string | null | undefined): string | undefined {
@@ -97,7 +108,7 @@ export async function loadFontFace(
         throw new DOMException("Aborted", "AbortError");
       }
       if (registeredFontFace) {
-        document.fonts.delete(registeredFontFace);
+        deleteFontFace(registeredFontFace);
       }
       document.fonts.add(loaded);
       registeredFontFace = loaded;
