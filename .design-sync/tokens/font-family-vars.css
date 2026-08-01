@@ -1,0 +1,17 @@
+/*
+ * Binds the shipped Geist faces to the custom properties globals.css consumes.
+ *
+ * globals.css defines --font-sans as `var(--font-geist-sans), ui-sans-serif, …`
+ * but never defines --font-geist-sans itself: in the application next/font
+ * publishes it at runtime. `extraFonts` only harvests @font-face rules, so
+ * without this file the uploaded CSS ships the Geist faces yet still resolves
+ * --font-sans to the system stack — every card and every generated design
+ * renders in the wrong typeface, and nothing downstream catches it.
+ *
+ * Reached from styles.css via cfg.tokensGlob.
+ */
+
+:root {
+  --font-geist-sans: "Geist";
+  --font-geist-mono: "Geist Mono";
+}
