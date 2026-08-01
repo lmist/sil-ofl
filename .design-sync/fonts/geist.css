@@ -1,0 +1,33 @@
+/*
+ * Geist + Geist Mono (OFL-1.1), latin subset, variable weight 100-900.
+ *
+ * The application loads these through next/font/google in src/app/layout.tsx,
+ * which publishes them as the --font-geist-sans / --font-geist-mono custom
+ * properties that globals.css consumes. Storybook and the design-sync bundle
+ * render without a Next runtime, so there is nothing to publish those
+ * properties. This file supplies the same two properties from shipped woff2
+ * files so previews and generated designs use the real UI typeface.
+ *
+ * Application code is untouched — layout.tsx remains the app's font source.
+ */
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./geist-sans.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./geist-mono.woff2") format("woff2");
+}
+
+:root {
+  --font-geist-sans: "Geist";
+  --font-geist-mono: "Geist Mono";
+}

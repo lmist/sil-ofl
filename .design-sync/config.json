@@ -1,0 +1,30 @@
+{
+  "projectId": "1e7764f6-bd6a-4f47-a1bd-72c59d777706",
+  "pkg": "web-app",
+  "globalName": "SilOflFontsDS",
+  "shape": "storybook",
+  "storybookConfigDir": ".storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "buildCmd": "bunx tsc -p .design-sync/tsconfig.dts.json",
+  "entry": "src/ds-entry.tsx",
+  "tsconfig": "tsconfig.json",
+  "srcDir": "src",
+  "extraFonts": [".design-sync/fonts/geist.css"],
+  "extraEntries": ["./.design-sync/preview/catalog-shell-provider.tsx"],
+  "storyImports": {
+    "bundle": ["next/dist/"],
+    "loaders": {
+      ".woff2": "dataurl"
+    }
+  },
+  "provider": {
+    "component": "DesignSurface"
+  },
+  "overrides": {
+    "FontList": {
+      "cardMode": "column"
+    }
+  },
+  "guidelinesGlob": ["INVARIANTS.md"],
+  "readmeHeader": ".design-sync/conventions.md"
+}

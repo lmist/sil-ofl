@@ -1,0 +1,14 @@
+{
+  "//": "Emits the .d.ts tree design-sync reads as the design system's public API. Output is generated and gitignored; regenerate with the buildCmd in config.json.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "incremental": false,
+    "rootDir": "../src",
+    "outDir": "dts"
+  },
+  "include": ["../src/ds-entry.tsx"]
+}
