@@ -347,6 +347,108 @@ ON CONFLICT (repo_id, path) DO UPDATE
   return { text, values };
 }
 
+/** Columns written by a font_files upsert, in placeholder order. */
+const FONT_FILE_COLUMNS = [
+  "repo_id", "path", "file_name", "format", "raw_url", "cdn_url", "blob_url",
+  "branch", "size_bytes", "family_guess", "subfamily_guess", "weight_guess",
+  "style_guess", "is_variable", "is_webfont", "sha", "discovered_at",
+] as const;
+
+/**
+ * Maximum rows per batched statement.
+ *
+ * Postgres caps a statement at 65535 bound parameters and each row binds
+ * FONT_FILE_COLUMNS.length of them, so the hard ceiling is ~3,855 rows. 200 is
+ * deliberately well under that: it keeps a single failed chunk small enough to
+ * reason about, and the round-trip saving is already asymptotic by then.
+ */
+export const FONT_FILE_UPSERT_CHUNK_SIZE = 200;
+
+/**
+ * Batched form of buildFontFileUpsert.
+ *
+ * Motivation, measured: the per-row form issues one Neon HTTP round-trip per
+ * file. A repo like chiron-fonts/chiron-sung-hk carries 644 files, so a
+ * three-repo batch took 115 seconds while spending only 6 GitHub requests — the
+ * database round-trips were the entire cost, and at ~38s per repo the full
+ * queue would take over five days.
+ *
+ * The conflict target, merge-preserving COALESCE columns, and the
+ * IS DISTINCT FROM guard are identical to the single-row form, so idempotency
+ * under INV-INGEST-1 is unchanged. A regression test asserts the two forms
+ * produce the same semantics rather than trusting that by inspection.
+ */
+export function buildFontFileUpsertBatch(
+  files: readonly FontFileInput[],
+  chunkSize: number = FONT_FILE_UPSERT_CHUNK_SIZE,
+): QueryResult[] {
+  if (files.length === 0) return [];
+  if (!Number.isInteger(chunkSize) || chunkSize < 1) {
+    throw new RangeError(`chunkSize must be a positive integer, got ${chunkSize}`);
+  }
+
+  const columnList = FONT_FILE_COLUMNS.join(", ");
+  const statements: QueryResult[] = [];
+
+  for (let start = 0; start < files.length; start += chunkSize) {
+    const chunk = files.slice(start, start + chunkSize);
+    const values: unknown[] = [];
+    const rowPlaceholders: string[] = [];
+
+    for (const file of chunk) {
+      const base = values.length;
+      values.push(
+        file.repo_id, file.path, file.file_name, file.format, file.raw_url,
+        file.cdn_url, file.blob_url, file.branch, file.size_bytes,
+        file.family_guess, file.subfamily_guess, file.weight_guess,
+        file.style_guess, file.is_variable, file.is_webfont, file.sha,
+        file.discovered_at,
+      );
+      rowPlaceholders.push(
+        `(${FONT_FILE_COLUMNS.map((_, i) => `$${base + i + 1}`).join(", ")})`,
+      );
+    }
+
+    statements.push({
+      text: `
+INSERT INTO font_files (${columnList})
+VALUES
+  ${rowPlaceholders.join(",\n  ")}
+ON CONFLICT (repo_id, path) DO UPDATE
+  SET file_name      = EXCLUDED.file_name,
+      format         = EXCLUDED.format,
+      raw_url        = EXCLUDED.raw_url,
+      cdn_url        = EXCLUDED.cdn_url,
+      blob_url       = EXCLUDED.blob_url,
+      branch         = EXCLUDED.branch,
+      size_bytes     = EXCLUDED.size_bytes,
+      is_variable    = EXCLUDED.is_variable,
+      is_webfont     = EXCLUDED.is_webfont,
+      sha            = EXCLUDED.sha,
+      discovered_at  = EXCLUDED.discovered_at,
+      -- Merge-preserving: prefer non-null value; keep metadata worker's output
+      family_guess    = COALESCE(EXCLUDED.family_guess,    font_files.family_guess),
+      subfamily_guess = COALESCE(EXCLUDED.subfamily_guess, font_files.subfamily_guess),
+      weight_guess    = COALESCE(EXCLUDED.weight_guess,    font_files.weight_guess),
+      style_guess     = COALESCE(EXCLUDED.style_guess,     font_files.style_guess)
+  WHERE font_files.file_name      IS DISTINCT FROM EXCLUDED.file_name
+     OR font_files.format         IS DISTINCT FROM EXCLUDED.format
+     OR font_files.raw_url        IS DISTINCT FROM EXCLUDED.raw_url
+     OR font_files.cdn_url        IS DISTINCT FROM EXCLUDED.cdn_url
+     OR font_files.blob_url       IS DISTINCT FROM EXCLUDED.blob_url
+     OR font_files.branch         IS DISTINCT FROM EXCLUDED.branch
+     OR font_files.size_bytes     IS DISTINCT FROM EXCLUDED.size_bytes
+     OR font_files.is_variable    IS DISTINCT FROM EXCLUDED.is_variable
+     OR font_files.is_webfont     IS DISTINCT FROM EXCLUDED.is_webfont
+     OR font_files.sha            IS DISTINCT FROM EXCLUDED.sha
+`.trim(),
+      values,
+    });
+  }
+
+  return statements;
+}
+
 // ---------------------------------------------------------------------------
 // Change-driven rescan predicate
 // ---------------------------------------------------------------------------

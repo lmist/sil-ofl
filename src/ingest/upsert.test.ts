@@ -18,6 +18,8 @@ import {
   buildOwnerUpsert,
   buildRepoUpsert,
   buildFontFileUpsert,
+  buildFontFileUpsertBatch,
+  FONT_FILE_UPSERT_CHUNK_SIZE,
   buildRescanQueueQuery,
   needsRescan,
   type OwnerInput,
@@ -555,5 +557,82 @@ describe("buildRescanQueueQuery", () => {
   it("no value appears inline — INV-DATA-3", () => {
     const { text, values } = buildRescanQueueQuery(999);
     assertNoInlineValues(text, values);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batched upsert — must be semantically identical to the single-row form
+// ---------------------------------------------------------------------------
+
+describe("buildFontFileUpsertBatch", () => {
+  const file = (repoId: number, path: string) => ({
+    repo_id: repoId,
+    path,
+    file_name: path.split("/").pop()!,
+    format: "ttf",
+    raw_url: `https://raw.githubusercontent.com/o/r/abc/${path}`,
+    cdn_url: `https://cdn.jsdelivr.net/gh/o/r@abc/${path}`,
+    blob_url: null,
+    branch: "main",
+    size_bytes: 1234,
+    family_guess: null,
+    subfamily_guess: null,
+    weight_guess: null,
+    style_guess: null,
+    is_variable: false,
+    is_webfont: false,
+    sha: "a".repeat(40),
+    discovered_at: new Date("2026-08-02T00:00:00Z"),
+  });
+
+  it("returns nothing for an empty input", () => {
+    assert.deepEqual(buildFontFileUpsertBatch([]), []);
+  });
+
+  it("rejects a non-positive chunk size instead of looping forever", () => {
+    assert.throws(() => buildFontFileUpsertBatch([file(1, "a.ttf")], 0), RangeError);
+  });
+
+  it("keeps the conflict target, merge columns and change guard of the single-row form", () => {
+    const single = buildFontFileUpsert(file(1, "a.ttf")).text;
+    const batched = buildFontFileUpsertBatch([file(1, "a.ttf")])[0]!.text;
+
+    for (const fragment of [
+      "ON CONFLICT (repo_id, path) DO UPDATE",
+      "family_guess    = COALESCE(EXCLUDED.family_guess,    font_files.family_guess)",
+      "subfamily_guess = COALESCE(EXCLUDED.subfamily_guess, font_files.subfamily_guess)",
+      "weight_guess    = COALESCE(EXCLUDED.weight_guess,    font_files.weight_guess)",
+      "style_guess     = COALESCE(EXCLUDED.style_guess,     font_files.style_guess)",
+      "font_files.sha            IS DISTINCT FROM EXCLUDED.sha",
+    ]) {
+      assert.ok(single.includes(fragment), `single-row form lost: ${fragment}`);
+      assert.ok(batched.includes(fragment), `batched form lost: ${fragment}`);
+    }
+  });
+
+  it("binds one placeholder per column per row and never inlines a value", () => {
+    const files = [file(1, "a.ttf"), file(1, "b/c d.ttf")];
+    const [statement] = buildFontFileUpsertBatch(files);
+    assert.ok(statement);
+    assert.equal(statement.values.length, 17 * files.length);
+    // highest placeholder equals the number of bound values
+    const highest = Math.max(
+      ...[...statement.text.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])),
+    );
+    assert.equal(highest, statement.values.length);
+    // no literal path text in the SQL
+    assert.ok(!statement.text.includes("b/c d.ttf"));
+  });
+
+  it("splits into chunks so a statement cannot exceed the parameter ceiling", () => {
+    const files = Array.from({ length: 450 }, (_, i) => file(1, `f${i}.ttf`));
+    const statements = buildFontFileUpsertBatch(files, FONT_FILE_UPSERT_CHUNK_SIZE);
+    assert.equal(statements.length, Math.ceil(450 / FONT_FILE_UPSERT_CHUNK_SIZE));
+    const total = statements.reduce((n, s) => n + s.values.length, 0);
+    assert.equal(total, 17 * 450);
+    for (const s of statements) {
+      assert.ok(s.values.length <= 17 * FONT_FILE_UPSERT_CHUNK_SIZE);
+      assert.ok(s.values.length < 65535, "must stay under the Postgres parameter cap");
+    }
   });
 });

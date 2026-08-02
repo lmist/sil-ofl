@@ -24,7 +24,8 @@ import {
   type ScanError,
 } from "@/ingest/scan-errors";
 import {
-  buildFontFileUpsert,
+  buildFontFileUpsertBatch,
+  FONT_FILE_UPSERT_CHUNK_SIZE,
   needsRescan,
   type FontFileInput,
   type RepoScanState,
@@ -420,31 +421,60 @@ LIMIT $1`,
     let filesRetired = 0;
 
     if (!dryRun) {
-      // Upsert observed files + un-retire reappeared ones
-      for (const file of toUpsert) {
-        const upsertQuery = buildFontFileUpsert(file);
-        await db(upsertQuery.text, upsertQuery.values);
-
-        // Check if this was a previously retired file and un-retire it
-        const wasRetired = storedFiles.find((s) => s.path === file.path && s.retired_at !== null);
-        if (wasRetired) {
-          const { buildUnretireQuery } = await import("@/ingest/reconcile");
-          const unretireQuery = buildUnretireQuery(wasRetired.id);
-          await db(unretireQuery.text, unretireQuery.values);
-        }
-
-        // Write delivery columns (not in FontFileInput base contract)
-        const extFile = file as FontFileInput & { _delivery?: string; _delivery_reason?: string | null };
-        if (extFile._delivery) {
-          await db(
-            `UPDATE font_files SET delivery = $2, delivery_reason = $3
-             WHERE repo_id = $1 AND path = $4`,
-            [file.repo_id, extFile._delivery, extFile._delivery_reason ?? null, file.path],
-          );
-        }
-
-        filesAdded += 1;
+      // Batched writes. Measured before batching: a three-repo run took 115s
+      // while spending only 6 GitHub requests, because a repo with 644 files
+      // issued 644 upserts plus 644 delivery updates as separate Neon
+      // round-trips. The queue would have taken over five days at that rate.
+      // Semantics are unchanged — buildFontFileUpsertBatch reuses the same
+      // conflict target, COALESCE merge columns and IS DISTINCT FROM guard.
+      for (const statement of buildFontFileUpsertBatch(toUpsert)) {
+        await db(statement.text, statement.values);
       }
+
+      // Delivery columns are not part of the FontFileInput contract, so they
+      // are written in one statement per chunk keyed by (repo_id, path).
+      const withDelivery = toUpsert
+        .map((file) => file as FontFileInput & {
+          _delivery?: string;
+          _delivery_reason?: string | null;
+        })
+        .filter((file) => Boolean(file._delivery));
+
+      for (
+        let start = 0;
+        start < withDelivery.length;
+        start += FONT_FILE_UPSERT_CHUNK_SIZE
+      ) {
+        const chunk = withDelivery.slice(start, start + FONT_FILE_UPSERT_CHUNK_SIZE);
+        const values: unknown[] = [];
+        const rows = chunk.map((file) => {
+          const base = values.length;
+          values.push(file.repo_id, file.path, file._delivery, file._delivery_reason ?? null);
+          return `($${base + 1}::bigint, $${base + 2}::text, $${base + 3}::text, $${base + 4}::text)`;
+        });
+        await db(
+          `UPDATE font_files AS f
+              SET delivery = v.delivery, delivery_reason = v.delivery_reason
+             FROM (VALUES ${rows.join(", ")}) AS v(repo_id, path, delivery, delivery_reason)
+            WHERE f.repo_id = v.repo_id AND f.path = v.path`,
+          values,
+        );
+      }
+
+      // Un-retire paths that have reappeared upstream. Rare, so per-row is
+      // fine and keeps reconcile.ts's builder as the single source of truth.
+      const reappeared = storedFiles.filter(
+        (stored) =>
+          stored.retired_at !== null &&
+          toUpsert.some((file) => file.path === stored.path),
+      );
+      for (const stored of reappeared) {
+        const { buildUnretireQuery } = await import("@/ingest/reconcile");
+        const unretireQuery = buildUnretireQuery(stored.id);
+        await db(unretireQuery.text, unretireQuery.values);
+      }
+
+      filesAdded += toUpsert.length;
 
       // Retire missing files
       for (const row of toRetire) {
