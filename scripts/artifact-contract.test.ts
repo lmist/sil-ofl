@@ -118,7 +118,9 @@ describe("artifact contracts", () => {
     const invariantIds = [
       ...invariants.matchAll(/^### (INV-[A-Z0-9-]+) —/gm),
     ].map((match) => match[1]!);
-    assert.equal(invariantIds.length, 47);
+    // 47 application invariants + 9 INV-INGEST-* added with the ingest
+    // pipeline (beads silofl-qiy.18).
+    assert.equal(invariantIds.length, 56);
     assert.equal(new Set(invariantIds).size, invariantIds.length);
 
     const enforcementMap = markdownSection(invariants, "Enforcement map");

@@ -10,6 +10,17 @@ const ACCEPTED_PUBLIC_FONT_LICENSES_SQL = ACCEPTED_PUBLIC_FONT_LICENSES.map(
   (license) => `'${license}'`,
 ).join(", ");
 const NOT_ARCHIVED_CLAUSE = "NOT r.is_archived";
+/**
+ * Tombstones (INV-INGEST-RETIRED-EXCLUDED, beads silofl-qiy.5).
+ *
+ * A font file whose path a completed rescan no longer observes upstream is
+ * retired rather than deleted, so history and provenance survive. A retired
+ * row MUST NOT appear in any public list, detail, total, or statistic — it
+ * points at an asset that no longer exists, and serving it is exactly the
+ * link rot this catalog was measured to have. Enforced by DQ-RETIRED-EXCLUDED.
+ */
+const NOT_RETIRED_FONT_CLAUSE = "f.retired_at IS NULL";
+const NOT_RETIRED_REPO_FONT_CLAUSE = "ff.retired_at IS NULL";
 const FONTISH_REPO_CLAUSE = "r.is_fontish";
 const NOT_FORK_CLAUSE = "NOT r.is_fork";
 const ACCEPTED_LICENSE_CLAUSE =
@@ -33,13 +44,14 @@ export const PUBLIC_REPO_VISIBILITY_CLAUSES = [
 export const PUBLIC_RENDERABLE_FONT_CLAUSE =
   "f.format IN ('ttf', 'otf', 'woff', 'woff2')";
 export const PUBLIC_RENDERABLE_REPO_FONT_CLAUSE =
-  "ff.format IN ('ttf', 'otf', 'woff', 'woff2')";
+  `ff.format IN ('ttf', 'otf', 'woff', 'woff2') AND ${NOT_RETIRED_REPO_FONT_CLAUSE}`;
 
 export const PUBLIC_FONT_VISIBILITY_CLAUSES = [
   NOT_ARCHIVED_CLAUSE,
   FONTISH_REPO_CLAUSE,
   NOT_FORK_CLAUSE,
   PUBLIC_RENDERABLE_FONT_CLAUSE,
+  NOT_RETIRED_FONT_CLAUSE,
   ACCEPTED_LICENSE_CLAUSE,
 ] as const;
 

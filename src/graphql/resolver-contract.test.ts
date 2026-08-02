@@ -229,6 +229,8 @@ describe("GraphQL resolver SQL contracts", () => {
       "r.is_fontish",
       "NOT r.is_fork",
       "f.format IN ('ttf', 'otf', 'woff', 'woff2')",
+      // Tombstoned rows are not public — INV-INGEST-RETIRED-EXCLUDED.
+      "f.retired_at IS NULL",
       "r.license_spdx IN ('OFL-1.0', 'OFL-1.1')",
       "r.stars >= $1",
     ].join(" AND ");
@@ -262,6 +264,7 @@ describe("GraphQL resolver SQL contracts", () => {
         "r.is_fontish",
         "NOT r.is_fork",
         "f.format IN ('ttf', 'otf', 'woff', 'woff2')",
+        "f.retired_at IS NULL",
         "r.license_spdx IN ('OFL-1.0', 'OFL-1.1')",
       ].join(" AND "),
     );
@@ -334,9 +337,9 @@ describe("GraphQL resolver SQL contracts", () => {
 
   it("defines repository font membership by publicly renderable files", async () => {
     const renderableFontSubquery =
-      "SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id AND ff.format IN ('ttf', 'otf', 'woff', 'woff2')";
+      "SELECT 1 FROM font_files ff WHERE ff.repo_id = r.id AND ff.format IN ('ttf', 'otf', 'woff', 'woff2') AND ff.retired_at IS NULL";
     const renderableFontCount =
-      "SELECT COUNT(*)::int FROM font_files ff WHERE ff.repo_id = r.id AND ff.format IN ('ttf', 'otf', 'woff', 'woff2')";
+      "SELECT COUNT(*)::int FROM font_files ff WHERE ff.repo_id = r.id AND ff.format IN ('ttf', 'otf', 'woff', 'woff2') AND ff.retired_at IS NULL";
 
     for (const withFonts of [true, false]) {
       const { contextValue, queryCalls } = createSqlCapture();

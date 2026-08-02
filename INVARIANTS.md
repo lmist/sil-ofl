@@ -344,6 +344,108 @@ Browser tests MUST locate interactive behavior through accessible roles and
 names or an explicitly documented public DOM contract. Tests MUST NOT require
 an overriding accessible label that conflicts with visible content, and
 screen-reader-only instructions MUST NOT be mistaken for application identity.
+## Ingest pipeline and data quality
+
+These invariants govern the correctness, completeness, and freshness of the data
+the ingest pipeline writes into the catalog database. They apply to every
+collector run, every upsert, and every row the public GraphQL API can reach.
+
+### INV-INGEST-1 — Re-running changes nothing
+
+A run against unchanged upstream state MUST leave the database byte-identical.
+Upserts MUST use the existing unique constraints as conflict targets and MUST
+guard the update so unchanged rows are not written. Metadata read from a font
+binary MUST NOT be overwritten by a filename guess, and an upsert carrying a
+null MUST NOT erase a populated value.
+
+### INV-INGEST-2 — Stored asset URLs are well formed
+
+Every `cdn_url` and `raw_url` MUST be a valid URL. Path segments MUST be
+percent-encoded. A stored URL MUST NOT contain a raw space or a character
+outside printable ASCII. A row whose URL cannot be constructed validly MUST NOT be
+published.
+
+Unencoded URLs are not merely untidy: an HTTP client refuses them before any
+byte is transferred, and non-ASCII segments are rejected by the CDN with `400`.
+
+### INV-INGEST-3 — Published assets are pinned to an immutable ref
+
+A published asset URL MUST reference an immutable commit-ish — the commit sha
+resolved when the repository was scanned — and MUST NOT reference a mutable
+branch such as `main` or `master`.
+
+`font_files.sha` MUST NOT be used as the pin. It is the git **blob** sha of the
+file, not a commit. Verified against the live CDN on 2026-08-02: the branch ref
+returned `206`, the identical path with the blob sha as ref returned `404`, and
+GitHub's commit API does not recognise the value as a commit object. The pin
+therefore originates only from the scan that resolved the repository's head
+commit, which is why immutability arrives with coverage rather than as a
+standalone URL migration.
+
+Branch pins rot silently. Measured on a 500-row sample: every `404` was a
+branch-pinned row whose upstream path had moved, while every row already
+rescanned onto a commit sha returned `206`.
+
+### INV-INGEST-4 — A renderable row can actually be fetched
+
+Every non-retired row in a renderable format MUST carry a delivery
+classification recording whether it is CDN-servable, must fall back to
+`raw_url`, or is not renderable at all, together with a machine-readable reason.
+
+A file above the CDN size limit MUST NOT be advertised as CDN-servable; the CDN
+answers `403`. A zero-length blob MUST NOT be published — the canonical git
+empty-blob sha is not a font.
+
+### INV-INGEST-5 — Licence claims carry evidence
+
+A licence MUST be either reported by the upstream host or resolved by matching
+licence text, and a text-resolved licence MUST record the repository path that
+produced it. A weak or ambiguous match MUST resolve to nothing.
+
+Recovered licences MUST be stored separately from the upstream classification so
+the two remain distinguishable and auditable. `INV-DATA-1` is unaffected: only
+the accepted OFL set reaches the public catalog, and improving recall MUST NOT
+widen that set.
+
+### INV-INGEST-6 — Every eligible repository is scanned
+
+Every repository eligible for the public catalog MUST reach a terminal scan
+outcome. Every scan attempt MUST record either a success timestamp or a
+classified error; a repository MUST NOT be left silently unattempted.
+
+Retryable failures — rate limiting, `5xx`, timeouts — MUST be distinguished from
+terminal ones and retried with bounded backoff. Terminal failures MUST NOT be
+retried indefinitely.
+
+### INV-INGEST-7 — Every run opens and closes
+
+Every run MUST create a run record before doing work and MUST close it with a
+terminal outcome and its counters. A run left open past the expected window MUST
+be treated as crashed, not as healthy or absent.
+
+Ingest health — last outcome, freshness, coverage, failures by class, asset
+verification rate — MUST be answerable in a single query.
+
+### INV-INGEST-8 — Retired rows are never public
+
+A file whose path a **completed** rescan no longer observes upstream MUST be
+retired rather than deleted, and a retired row MUST NOT appear in any public
+list, detail, total, or statistic.
+
+Retirement MUST NOT run on an incomplete observation. A truncated tree, an
+errored scan, or an unreachable repository MUST retire nothing — that
+distinction is what stops a transient upstream failure from emptying the
+catalog. A retired path that reappears MUST be restored, not duplicated.
+
+### INV-INGEST-9 — Data quality is asserted, not assumed
+
+Each invariant above MUST have a corresponding automated check with an explicit
+threshold, and those checks MUST run against the catalog on a schedule and in
+CI. A check MUST fail loudly rather than warn.
+
+A threshold MUST record the value measured when it was set, so a reader can see
+both the target and the starting point. A check that passes on known-bad data is
+not enforcement.
 
 ## Enforcement map
 
@@ -694,3 +796,59 @@ tests in the same commit.
   [catalog state browser suite](e2e/catalog-state.spec.ts),
   [accessibility/layout browser suite](e2e/a11y-layout.spec.ts), and
   [specimen/export browser suite](e2e/specimen-export.spec.ts).
+
+### Ingest pipeline and data quality
+
+- `INV-INGEST-1` — Production: [upsert builders](src/ingest/upsert.ts) and
+  [duplicate grouping](src/ingest/dedup.ts). Regressions:
+  [upsert tests](src/ingest/upsert.test.ts) and
+  [dedup tests](src/ingest/dedup.test.ts).
+- `INV-INGEST-2` — Production: [asset URL builder](src/ingest/asset-url.ts) and
+  [URL backfill](src/ingest/url-backfill.ts). Regressions:
+  [asset URL tests](src/ingest/asset-url.test.ts),
+  [URL backfill tests](src/ingest/url-backfill.test.ts), and
+  [data-quality checks](src/ingest/data-quality.test.ts) via `DQ-URL-ENCODING`
+  and `DQ-NON-ASCII`.
+- `INV-INGEST-3` — Production: [GitHub client](src/ingest/github-client.ts) and
+  [scan worker](src/ingest/scan-worker.ts), which resolve the head commit and
+  build pinned URLs. Regressions:
+  [scan worker tests](src/ingest/scan-worker.test.ts),
+  [URL backfill tests](src/ingest/url-backfill.test.ts), which assert the blob
+  sha is never used as a ref, and
+  [data-quality checks](src/ingest/data-quality.test.ts) via `DQ-SHA-PINNED`.
+- `INV-INGEST-4` — Production: [CDN delivery policy](src/ingest/cdn-policy.ts)
+  and [asset verification](src/ingest/asset-verify.ts). Regressions:
+  [CDN policy tests](src/ingest/cdn-policy.test.ts), which include a drift guard
+  against [the public font policy](src/graphql/schema/public-font-policy.ts),
+  [asset verification tests](src/ingest/asset-verify.test.ts), and
+  [data-quality checks](src/ingest/data-quality.test.ts) via `DQ-CDN-SIZE`,
+  `DQ-ZERO-LENGTH`, `DQ-DELIVERY-CLASSIFIED`, and `DQ-ASSET-VERIFIED`.
+- `INV-INGEST-5` — Production: [licence detection](src/ingest/license-detect.ts),
+  [licence recovery runner](scripts/ingest-licence-recover.ts), and
+  [the ingest schema](sql/002_ingest.sql), which keeps recovered licences in
+  their own columns. Regressions:
+  [licence detection tests](src/ingest/license-detect.test.ts) and
+  [data-quality checks](src/ingest/data-quality.test.ts) via
+  `DQ-LICENCE-EVIDENCE`.
+- `INV-INGEST-6` — Production: [scan error taxonomy](src/ingest/scan-errors.ts),
+  [scan worker](src/ingest/scan-worker.ts), and
+  [scan runner](scripts/ingest-scan.ts). Regressions:
+  [scan error tests](src/ingest/scan-errors.test.ts),
+  [scan worker tests](src/ingest/scan-worker.test.ts), and
+  [data-quality checks](src/ingest/data-quality.test.ts) via `DQ-COVERAGE`.
+- `INV-INGEST-7` — Production: [run telemetry](src/ingest/telemetry.ts) and
+  [scan runner](scripts/ingest-scan.ts). Regressions:
+  [telemetry tests](src/ingest/telemetry.test.ts) and
+  [data-quality checks](src/ingest/data-quality.test.ts) via `DQ-RUN-FRESHNESS`,
+  `DQ-RUN-CRASHED`, and `DQ-FRESHNESS`.
+- `INV-INGEST-8` — Production: [tombstone reconciliation](src/ingest/reconcile.ts)
+  and [the public font policy](src/graphql/schema/public-font-policy.ts).
+  Regressions: [reconcile tests](src/ingest/reconcile.test.ts),
+  [resolver SQL contracts](src/graphql/resolver-contract.test.ts), and
+  [data-quality checks](src/ingest/data-quality.test.ts) via
+  `DQ-RETIRED-EXCLUDED`.
+- `INV-INGEST-9` — Production: [check registry](src/ingest/data-quality.ts),
+  [live check runner](scripts/ingest-checks.ts),
+  [ingest audit](scripts/ingest-audit.ts), and
+  [the data-quality workflow](.github/workflows/data-quality.yml). Regressions:
+  [data-quality tests](src/ingest/data-quality.test.ts).

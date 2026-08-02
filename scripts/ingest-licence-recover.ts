@@ -260,6 +260,20 @@ async function main(): Promise<void> {
         : "no candidate files found";
       console.log(`→ unresolved (${checked})`);
       unresolved++;
+
+      // Record that this candidate WAS examined even though nothing matched.
+      // Without this stamp, "examined and correctly not OFL" is
+      // indistinguishable from "never looked at": the candidate would be
+      // re-fetched on every run, and DQ-LICENCE-EVIDENCE could not tell a
+      // backlog from a settled exclusion. license_detected_spdx stays NULL —
+      // INV-INGEST-5 requires a weak match to resolve to nothing.
+      if (!dryRun) {
+        await sql`
+          UPDATE repos
+          SET license_detected_at = now()
+          WHERE id = ${result.repoId}
+        `;
+      }
     }
 
     results.push(result);

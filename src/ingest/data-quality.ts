@@ -15,6 +15,8 @@
  * See docs/INGEST_RESILIENCE.md for the full audit narrative.
  */
 
+import { PUBLIC_FONT_VISIBILITY_CLAUSES } from "@/graphql/schema/public-font-policy";
+
 // ---------------------------------------------------------------------------
 // Threshold constants — TODAY'S measured value is noted next to each.
 // The target is ≤ 0 (or the named limit) once the pipeline is fixed.
@@ -288,10 +290,18 @@ export const CHECKS: readonly DataQualityCheck[] = [
       "2026-08-02, with the largest at ~95 MiB. These rows are served to the public " +
       "catalog but cannot actually be loaded by any browser. " +
       "Prevents INV-INGEST-RENDERABLE-HEALTH.",
+    // Counts rows ADVERTISED as CDN-servable that exceed the limit, not every
+    // oversize file. The 27 oversize files genuinely exist upstream and we
+    // cannot shrink them; the defect is claiming the CDN will serve them when
+    // it answers 403. Once classifyDelivery moves them to raw_fallback this
+    // reaches 0. Counting oversize files outright would be a check that can
+    // never pass, which is a check nobody keeps.
     sql:
       "SELECT COUNT(*) FILTER (WHERE size_bytes > 20971520)::int AS oversize_renderable_count\n" +
       "FROM font_files\n" +
-      "WHERE format IN ('ttf', 'otf', 'woff', 'woff2')",
+      "WHERE format IN ('ttf', 'otf', 'woff', 'woff2')\n" +
+      "  AND retired_at IS NULL\n" +
+      "  AND delivery = 'cdn'",
     evaluate(row) {
       const observed = num(row, "oversize_renderable_count");
       const threshold = THRESHOLD_OVERSIZE_RENDERABLE;
@@ -391,7 +401,8 @@ export const CHECKS: readonly DataQualityCheck[] = [
       "Prevents INV-INGEST-RENDERABLE-HEALTH.",
     sql:
       "SELECT COUNT(*) FILTER (WHERE size_bytes = 0)::int AS zero_length_count\n" +
-      "FROM font_files",
+      "FROM font_files\n" +
+      "WHERE retired_at IS NULL",
     evaluate(row) {
       const observed = num(row, "zero_length_count");
       const threshold = THRESHOLD_ZERO_LENGTH;
@@ -415,17 +426,22 @@ export const CHECKS: readonly DataQualityCheck[] = [
     title: "No fontish non-fork non-archived repos have unresolved licence",
     severity: "error",
     rationale:
-      "78 repos are fontish, non-fork, non-archived but carry NULL or NOASSERTION " +
-      "for license_spdx as of 2026-08-02. GitHub classifies OFL.txt as NOASSERTION " +
-      "frequently; these repos are almost certainly OFL but are excluded from the " +
-      "public catalog. Reading the licence text from the repo is the fix. " +
-      "Prevents INV-INGEST-LICENCE-EVIDENCE.",
+      "78 repos were fontish, non-fork, non-archived and carried NULL or " +
+      "NOASSERTION for license_spdx on 2026-08-02, because GitHub classifies " +
+      "OFL.txt as NOASSERTION frequently. This check counts candidates that have " +
+      "never been EXAMINED (license_detected_at IS NULL), not candidates that " +
+      "came back unresolved. A candidate examined and found genuinely non-OFL is " +
+      "a correct exclusion under INV-DATA-1 and must not fail forever; a " +
+      "candidate nobody has read is a real gap. Of the original 78, 35 resolved " +
+      "to OFL-1.1 and 43 were examined and correctly excluded. " +
+      "Enforces INV-INGEST-5.",
     sql:
       "SELECT COUNT(*) FILTER (\n" +
       "  WHERE (license_spdx IS NULL OR license_spdx = 'NOASSERTION')\n" +
       "    AND is_fontish\n" +
       "    AND NOT is_fork\n" +
       "    AND NOT is_archived\n" +
+      "    AND license_detected_at IS NULL\n" +
       ")::int AS unresolved_candidates_count\n" +
       "FROM repos",
     evaluate(row) {
@@ -714,17 +730,18 @@ export const CHECKS: readonly DataQualityCheck[] = [
       "added. The check passes today trivially and will catch violations once the " +
       "tombstone path is active. Target: always 0. " +
       "Prevents INV-INGEST-IDEMPOTENCY and INV-DATA-2.",
+    // The predicate is composed from PUBLIC_FONT_VISIBILITY_CLAUSES rather than
+    // restated here. That is deliberate: if the retired_at guard is ever removed
+    // from the policy module, this check stops excluding tombstones and fails.
+    // Restating the clauses by hand would have made it blind to exactly the
+    // regression it exists to catch.
     sql:
       "SELECT COUNT(*) FILTER (\n" +
-      "  WHERE ff.retired_at IS NOT NULL\n" +
-      "    AND r.is_fontish\n" +
-      "    AND NOT r.is_fork\n" +
-      "    AND NOT r.is_archived\n" +
-      "    AND r.license_spdx IN ('OFL-1.0', 'OFL-1.1')\n" +
-      "    AND ff.format IN ('ttf', 'otf', 'woff', 'woff2')\n" +
+      "  WHERE f.retired_at IS NOT NULL\n" +
+      `    AND ${PUBLIC_FONT_VISIBILITY_CLAUSES.join("\n    AND ")}\n` +
       ")::int AS retired_visible_count\n" +
-      "FROM font_files ff\n" +
-      "JOIN repos r ON r.id = ff.repo_id",
+      "FROM font_files f\n" +
+      "JOIN repos r ON r.id = f.repo_id",
     evaluate(row) {
       const observed = num(row, "retired_visible_count");
       const threshold = THRESHOLD_RETIRED_VISIBLE;
