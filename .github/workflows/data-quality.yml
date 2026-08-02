@@ -1,0 +1,101 @@
+# Data-quality CI for the SIL OFL font catalog ingest pipeline.
+#
+# Runs on every PR, every push to main, daily at 05:17 UTC, and on demand.
+#
+# Two jobs:
+#
+#   lint-and-unit — pure offline work: bun ci, bun run tsc, bun test.
+#     Runs unconditionally. This is the gate that matters for PRs: it
+#     exercises the pure evaluate() functions against known fixtures and
+#     confirms the SQL strings are structurally valid. No secrets needed.
+#
+#   live-checks — the data-quality suite against the live Neon database.
+#     Gated on DATABASE_URL being present in secrets.
+#
+#     WHY THIS GATING CHOICE:
+#     The suite currently fails against the live database (6 error-severity
+#     checks, all of them correct — the data is genuinely broken). Blocking
+#     main on a known-failing live suite would make the branch permanently
+#     red and would cause contributors to either ignore CI or paper over the
+#     failures. At the same time, silently passing would defeat the whole
+#     point. The right answer is:
+#       - The pure unit tests always gate PRs (lint-and-unit, above).
+#       - The live-checks job runs but is marked continue-on-error: true
+#         so it never blocks an unrelated PR. It still fails loudly (exit 1,
+#         full terminal output, annotated in the Actions UI) so an operator
+#         watching the daily run will see it. Once the ingest backfill
+#         lands and all checks pass, remove continue-on-error here — that
+#         transition is the milestone, not a quiet config change.
+#     This is a deliberate, temporary, commented decision — not a workaround
+#     that a future reader should copy without understanding it.
+
+name: Data quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: data-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-unit:
+    name: Lint and unit tests (offline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install dependencies
+        run: bun ci --ignore-scripts
+
+      - name: Type-check
+        run: bun run tsc --noEmit
+
+      - name: Unit tests (offline — no database)
+        run: bun test src/ingest/data-quality.test.ts src/ingest/telemetry.test.ts
+
+  live-checks:
+    name: Live data-quality checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Gate on the secret being present. Forks and unrelated PRs from contributors
+    # who don't have the secret should not fail on this job. The offline unit
+    # tests in lint-and-unit are the invariant gate; this job is an operator
+    # dashboard. See the top-of-file comment for the full rationale.
+    if: ${{ secrets.DATABASE_URL != '' }}
+    # The suite currently fails (6 error-severity checks, all legitimately).
+    # continue-on-error: true means the live database step cannot be the sole
+    # reason main goes red. Remove this line once the backfill lands and all
+    # checks pass — that is the observable milestone. See top-of-file comment.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install dependencies
+        run: bun ci --ignore-scripts
+
+      - name: Run data-quality suite against live database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun scripts/ingest-checks.ts
+        # The script exits non-zero when any error-severity check fails —
+        # that exit code is what continue-on-error captures as a visible
+        # failure in the Actions UI without blocking the branch.

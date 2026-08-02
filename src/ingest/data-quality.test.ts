@@ -649,3 +649,546 @@ describe("formatReport()", () => {
     assert.ok(report.includes("OK"));
   });
 });
+
+// ===========================================================================
+// New checks — added session 2, beads silofl-qiy.19 (2026-08-02)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// DQ-RUN-FRESHNESS
+// ---------------------------------------------------------------------------
+describe("DQ-RUN-FRESHNESS", () => {
+  const check = getCheck("DQ-RUN-FRESHNESS");
+
+  it("fails when no completed run exists (hours_since_completed = null)", () => {
+    const outcome = check.evaluate({
+      last_completed_at: null,
+      hours_since_completed: null,
+    });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("fails when last completed run was 40h ago (beyond 36h threshold)", () => {
+    const outcome = check.evaluate({
+      last_completed_at: new Date(Date.now() - 40 * 3600 * 1000).toISOString(),
+      hours_since_completed: 40,
+    });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("passes when last completed run was 10h ago", () => {
+    const outcome = check.evaluate({
+      last_completed_at: new Date(Date.now() - 10 * 3600 * 1000).toISOString(),
+      hours_since_completed: 10,
+    });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("passes at exactly the threshold (boundary is exclusive)", () => {
+    const outcome = check.evaluate({
+      last_completed_at: new Date().toISOString(),
+      hours_since_completed: 36,
+    });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("fails at threshold + 1 hour", () => {
+    const outcome = check.evaluate({
+      last_completed_at: new Date().toISOString(),
+      hours_since_completed: 37,
+    });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("detail mentions 'no completed run' when last_completed_at is null", () => {
+    const outcome = check.evaluate({
+      last_completed_at: null,
+      hours_since_completed: null,
+    });
+    assert.ok(
+      outcome.detail.toLowerCase().includes("no completed") ||
+        outcome.detail.toLowerCase().includes("never"),
+      "detail must explain that no completed run exists",
+    );
+  });
+
+  it("has no semicolon in SQL", () => {
+    assert.ok(!check.sql.includes(";"));
+  });
+
+  it("SQL is read-only", () => {
+    const forbidden = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)\b/i;
+    assert.ok(!forbidden.test(check.sql));
+  });
+
+  it("replicates the 2026-08-02 scenario: fails because last run has NULL outcome", () => {
+    // Actual measured value: last run finished ~5718 min ago but outcome=NULL
+    // The SQL selects only outcome='completed' rows, so hours_since_completed=null
+    const outcome = check.evaluate({
+      last_completed_at: null,
+      hours_since_completed: null,
+    });
+    assert.equal(outcome.status, "fail");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DQ-RUN-CRASHED
+// ---------------------------------------------------------------------------
+describe("DQ-RUN-CRASHED", () => {
+  const check = getCheck("DQ-RUN-CRASHED");
+
+  it("passes when no runs are stuck in 'running' (measured: 0)", () => {
+    const outcome = check.evaluate({ crashed_run_count: 0 });
+    assert.equal(outcome.status, "pass");
+    assert.equal(outcome.observed, 0);
+  });
+
+  it("fails when one run is stuck in 'running' past threshold", () => {
+    const outcome = check.evaluate({ crashed_run_count: 1 });
+    assert.equal(outcome.status, "fail");
+    assert.equal(outcome.observed, 1);
+  });
+
+  it("fails for any positive count", () => {
+    for (const n of [1, 2, 10]) {
+      const outcome = check.evaluate({ crashed_run_count: n });
+      assert.equal(outcome.status, "fail", `should fail for crashed_run_count=${n}`);
+    }
+  });
+
+  it("detail mentions the minute threshold", () => {
+    const outcome = check.evaluate({ crashed_run_count: 0 });
+    assert.ok(
+      outcome.detail.includes("240") || outcome.detail.toLowerCase().includes("minute"),
+      "detail must mention the crash threshold in minutes",
+    );
+  });
+
+  it("SQL contains outcome = 'running'", () => {
+    assert.ok(check.sql.includes("outcome = 'running'"));
+  });
+
+  it("SQL is read-only and has no semicolon", () => {
+    const forbidden = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)\b/i;
+    assert.ok(!forbidden.test(check.sql));
+    assert.ok(!check.sql.includes(";"));
+  });
+
+  it("SQL models crashed-run detection via bun:sqlite", () => {
+    
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE collection_runs (
+        id INTEGER PRIMARY KEY,
+        outcome TEXT,
+        started_at TEXT
+      );
+      -- A 'completed' run (not crashed)
+      INSERT INTO collection_runs VALUES (1, 'completed', datetime('now', '-1 hour'));
+      -- A 'running' run open for 5 hours (> 240 min threshold)
+      INSERT INTO collection_runs VALUES (2, 'running', datetime('now', '-5 hours'));
+      -- A 'running' run only open for 30 min (< threshold)
+      INSERT INTO collection_runs VALUES (3, 'running', datetime('now', '-30 minutes'));
+    `);
+    const row = db.query<{ crashed_run_count: number }, []>(
+      `SELECT COUNT(*) FILTER (
+        WHERE outcome = 'running'
+          AND (CAST((julianday('now') - julianday(started_at)) * 24 * 60 AS INTEGER)) > 240
+       ) AS crashed_run_count
+       FROM collection_runs`
+    ).get();
+    db.close();
+    assert.ok(row);
+    // Only run id=2 (5 hours = 300 min > 240) should be flagged
+    const outcome = check.evaluate({ crashed_run_count: row.crashed_run_count });
+    assert.equal(outcome.status, "fail");
+    assert.equal(outcome.observed, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DQ-DELIVERY-CLASSIFIED
+// ---------------------------------------------------------------------------
+describe("DQ-DELIVERY-CLASSIFIED", () => {
+  const check = getCheck("DQ-DELIVERY-CLASSIFIED");
+
+  it("fails for measured 2026-08-02 value (35,503 null delivery)", () => {
+    const outcome = check.evaluate({ null_delivery_count: 35503 });
+    assert.equal(outcome.status, "fail");
+    assert.equal(outcome.observed, 35503);
+  });
+
+  it("passes when null_delivery_count = 0", () => {
+    const outcome = check.evaluate({ null_delivery_count: 0 });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("fails at count = 1", () => {
+    const outcome = check.evaluate({ null_delivery_count: 1 });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("SQL targets only non-retired renderable rows", () => {
+    assert.ok(check.sql.includes("retired_at IS NULL"));
+    assert.ok(check.sql.includes("delivery IS NULL"));
+    assert.ok(
+      check.sql.includes("'ttf'") && check.sql.includes("'otf'"),
+      "SQL must restrict to renderable formats",
+    );
+  });
+
+  it("SQL is read-only and has no semicolon", () => {
+    const forbidden = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)\b/i;
+    assert.ok(!forbidden.test(check.sql));
+    assert.ok(!check.sql.includes(";"));
+  });
+
+  it("SQL models delivery null detection via bun:sqlite", () => {
+    
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE font_files (
+        id INTEGER PRIMARY KEY,
+        retired_at TEXT,
+        format TEXT,
+        delivery TEXT
+      );
+      INSERT INTO font_files VALUES (1, NULL, 'ttf',  NULL);     -- renderable, no delivery
+      INSERT INTO font_files VALUES (2, NULL, 'otf',  'cdn');    -- renderable, classified
+      INSERT INTO font_files VALUES (3, '2026-08-01', 'ttf', NULL); -- retired, ignored
+      INSERT INTO font_files VALUES (4, NULL, 'png',  NULL);     -- not renderable, ignored
+    `);
+    const row = db.query<{ null_delivery_count: number }, []>(
+      `SELECT COUNT(*) FILTER (
+         WHERE retired_at IS NULL
+           AND format IN ('ttf', 'otf', 'woff', 'woff2')
+           AND delivery IS NULL
+       ) AS null_delivery_count
+       FROM font_files`
+    ).get();
+    db.close();
+    assert.ok(row);
+    const outcome = check.evaluate({ null_delivery_count: row.null_delivery_count });
+    assert.equal(outcome.status, "fail");
+    assert.equal(outcome.observed, 1); // only row 1
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DQ-ASSET-VERIFIED
+// ---------------------------------------------------------------------------
+describe("DQ-ASSET-VERIFIED", () => {
+  const check = getCheck("DQ-ASSET-VERIFIED");
+
+  it("passes trivially when no rows are verified (measured: 0)", () => {
+    const outcome = check.evaluate({
+      verified_count: 0,
+      non2xx_count: 0,
+      non2xx_rate: 0,
+    });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("passes when non-2xx rate is 3% (below 5% threshold)", () => {
+    const outcome = check.evaluate({
+      verified_count: 1000,
+      non2xx_count: 30,
+      non2xx_rate: 0.03,
+    });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("fails when non-2xx rate is 10% (above threshold)", () => {
+    const outcome = check.evaluate({
+      verified_count: 1000,
+      non2xx_count: 100,
+      non2xx_rate: 0.1,
+    });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("passes at exactly threshold (boundary is exclusive)", () => {
+    const outcome = check.evaluate({
+      verified_count: 100,
+      non2xx_count: 5,
+      non2xx_rate: 0.05,
+    });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("fails just above threshold (0.051)", () => {
+    const outcome = check.evaluate({
+      verified_count: 1000,
+      non2xx_count: 51,
+      non2xx_rate: 0.051,
+    });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("detail mentions 'no data' when verified_count = 0", () => {
+    const outcome = check.evaluate({
+      verified_count: 0,
+      non2xx_count: 0,
+      non2xx_rate: 0,
+    });
+    assert.ok(
+      outcome.detail.toLowerCase().includes("no rows") ||
+        outcome.detail.toLowerCase().includes("verified_at is null") ||
+        outcome.detail.toLowerCase().includes("trivially"),
+      "detail must explain that no verification data exists",
+    );
+  });
+
+  it("SQL is read-only and has no semicolon", () => {
+    const forbidden = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)\b/i;
+    assert.ok(!forbidden.test(check.sql));
+    assert.ok(!check.sql.includes(";"));
+  });
+
+  it("SQL targets only non-retired rows", () => {
+    assert.ok(check.sql.includes("retired_at IS NULL"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DQ-METADATA-PROVENANCE
+// ---------------------------------------------------------------------------
+describe("DQ-METADATA-PROVENANCE", () => {
+  const check = getCheck("DQ-METADATA-PROVENANCE");
+
+  it("fails for measured 2026-08-02 value: all 35,509 rows have NULL metadata_source (100% > 80% threshold)", () => {
+    // When all rows have null metadata_source, filename_rate = 1.0
+    const outcome = check.evaluate({
+      total_live: 35509,
+      filename_count: 35509,
+      filename_rate: 1.0,
+    });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("passes when filename rate is 50% (below 80% threshold)", () => {
+    const outcome = check.evaluate({
+      total_live: 1000,
+      filename_count: 500,
+      filename_rate: 0.5,
+    });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("passes at exactly 80% (boundary is exclusive)", () => {
+    const outcome = check.evaluate({
+      total_live: 100,
+      filename_count: 80,
+      filename_rate: 0.8,
+    });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("fails at 81%", () => {
+    const outcome = check.evaluate({
+      total_live: 100,
+      filename_count: 81,
+      filename_rate: 0.81,
+    });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("SQL counts NULL metadata_source as filename provenance", () => {
+    assert.ok(
+      check.sql.includes("metadata_source IS NULL") &&
+        check.sql.includes("metadata_source = 'filename'"),
+      "SQL must treat NULL metadata_source same as filename",
+    );
+  });
+
+  it("SQL is read-only and has no semicolon", () => {
+    const forbidden = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)\b/i;
+    assert.ok(!forbidden.test(check.sql));
+    assert.ok(!check.sql.includes(";"));
+  });
+
+  it("SQL models provenance detection via bun:sqlite", () => {
+    
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE font_files (
+        id INTEGER PRIMARY KEY,
+        retired_at TEXT,
+        metadata_source TEXT
+      );
+      INSERT INTO font_files VALUES (1, NULL, NULL);        -- filename (null)
+      INSERT INTO font_files VALUES (2, NULL, 'filename');  -- filename explicit
+      INSERT INTO font_files VALUES (3, NULL, 'binary');    -- binary (resolved)
+      INSERT INTO font_files VALUES (4, '2026-08-01', NULL); -- retired, excluded
+    `);
+    const row = db.query<{ total_live: number; filename_count: number; filename_rate: number }, []>(
+      `SELECT
+         COUNT(*) FILTER (WHERE retired_at IS NULL) AS total_live,
+         COUNT(*) FILTER (
+           WHERE retired_at IS NULL
+             AND (metadata_source IS NULL OR metadata_source = 'filename')
+         ) AS filename_count,
+         CASE WHEN COUNT(*) FILTER (WHERE retired_at IS NULL) > 0
+              THEN CAST(COUNT(*) FILTER (
+                     WHERE retired_at IS NULL
+                       AND (metadata_source IS NULL OR metadata_source = 'filename')
+                   ) AS REAL)
+                   / CAST(COUNT(*) FILTER (WHERE retired_at IS NULL) AS REAL)
+              ELSE 0
+         END AS filename_rate
+       FROM font_files`
+    ).get();
+    db.close();
+    assert.ok(row);
+    // 3 live rows, 2 filename/null (rows 1 and 2) — rate = 2/3 ≈ 67% < 80% → pass
+    const outcome = check.evaluate({
+      total_live: row.total_live,
+      filename_count: row.filename_count,
+      filename_rate: row.filename_rate,
+    });
+    assert.equal(outcome.status, "pass");
+    assert.equal(row.total_live, 3);
+    assert.equal(row.filename_count, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DQ-RETIRED-EXCLUDED
+// ---------------------------------------------------------------------------
+describe("DQ-RETIRED-EXCLUDED", () => {
+  const check = getCheck("DQ-RETIRED-EXCLUDED");
+
+  it("passes when no retired rows exist (measured 2026-08-02: 0)", () => {
+    const outcome = check.evaluate({ retired_visible_count: 0 });
+    assert.equal(outcome.status, "pass");
+  });
+
+  it("fails when one retired row is publicly visible", () => {
+    const outcome = check.evaluate({ retired_visible_count: 1 });
+    assert.equal(outcome.status, "fail");
+  });
+
+  it("fails for any positive count", () => {
+    for (const n of [1, 5, 100]) {
+      const outcome = check.evaluate({ retired_visible_count: n });
+      assert.equal(outcome.status, "fail", `should fail for retired_visible_count=${n}`);
+    }
+  });
+
+  it("detail explains what to do to fix the violation", () => {
+    const outcome = check.evaluate({ retired_visible_count: 2 });
+    assert.ok(
+      outcome.detail.toLowerCase().includes("retired") &&
+        (outcome.detail.toLowerCase().includes("tombstone") ||
+          outcome.detail.toLowerCase().includes("exclude")),
+      "detail must explain the fix",
+    );
+  });
+
+  it("SQL joins font_files with repos and applies public-font-policy clauses", () => {
+    assert.ok(check.sql.includes("retired_at IS NOT NULL"));
+    assert.ok(check.sql.includes("is_fontish"));
+    assert.ok(check.sql.includes("OFL-1.0") && check.sql.includes("OFL-1.1"));
+    assert.ok(
+      check.sql.includes("'ttf'") && check.sql.includes("'woff2'"),
+      "SQL must restrict to renderable formats",
+    );
+  });
+
+  it("SQL is read-only and has no semicolon", () => {
+    const forbidden = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)\b/i;
+    assert.ok(!forbidden.test(check.sql));
+    assert.ok(!check.sql.includes(";"));
+  });
+
+  it("SQL models retired-visible detection via bun:sqlite", () => {
+    
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE repos (
+        id INTEGER PRIMARY KEY,
+        is_fontish INTEGER,
+        is_fork INTEGER,
+        is_archived INTEGER,
+        license_spdx TEXT
+      );
+      CREATE TABLE font_files (
+        id INTEGER PRIMARY KEY,
+        repo_id INTEGER,
+        retired_at TEXT,
+        format TEXT
+      );
+      -- A public OFL repo with one live and one retired renderable row
+      INSERT INTO repos VALUES (1, 1, 0, 0, 'OFL-1.1');
+      INSERT INTO font_files VALUES (1, 1, NULL,          'ttf'); -- live
+      INSERT INTO font_files VALUES (2, 1, '2026-08-01',  'ttf'); -- retired but visible!
+      -- A private repo (fork) — should not be counted even if retired
+      INSERT INTO repos VALUES (2, 1, 1, 0, 'OFL-1.1');
+      INSERT INTO font_files VALUES (3, 2, '2026-08-01', 'ttf');
+    `);
+    const row = db.query<{ retired_visible_count: number }, []>(
+      `SELECT COUNT(*) FILTER (
+         WHERE ff.retired_at IS NOT NULL
+           AND r.is_fontish = 1
+           AND r.is_fork = 0
+           AND r.is_archived = 0
+           AND r.license_spdx IN ('OFL-1.0', 'OFL-1.1')
+           AND ff.format IN ('ttf', 'otf', 'woff', 'woff2')
+       ) AS retired_visible_count
+       FROM font_files ff
+       JOIN repos r ON r.id = ff.repo_id`
+    ).get();
+    db.close();
+    assert.ok(row);
+    const outcome = check.evaluate({ retired_visible_count: row.retired_visible_count });
+    // Only font_files row 2 is retired + in public OFL non-fork repo
+    assert.equal(outcome.status, "fail");
+    assert.equal(outcome.observed, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registry integrity — re-check after new checks are added
+// ---------------------------------------------------------------------------
+describe("CHECKS registry integrity (post-session-2)", () => {
+  it("registry now has 15 checks", () => {
+    assert.equal(CHECKS.length, 15);
+  });
+
+  it("all new check ids are present", () => {
+    const ids = new Set(CHECKS.map((c) => c.id));
+    for (const id of [
+      "DQ-RUN-FRESHNESS",
+      "DQ-RUN-CRASHED",
+      "DQ-DELIVERY-CLASSIFIED",
+      "DQ-ASSET-VERIFIED",
+      "DQ-METADATA-PROVENANCE",
+      "DQ-RETIRED-EXCLUDED",
+    ]) {
+      assert.ok(ids.has(id), `Missing check: ${id}`);
+    }
+  });
+
+  it("no duplicate check ids across old and new checks", () => {
+    const ids = CHECKS.map((c) => c.id);
+    const unique = new Set(ids);
+    assert.equal(unique.size, ids.length);
+  });
+
+  it("all new checks have error severity", () => {
+    const newCheckIds = [
+      "DQ-RUN-FRESHNESS",
+      "DQ-RUN-CRASHED",
+      "DQ-DELIVERY-CLASSIFIED",
+      "DQ-ASSET-VERIFIED",
+      "DQ-METADATA-PROVENANCE",
+      "DQ-RETIRED-EXCLUDED",
+    ];
+    for (const id of newCheckIds) {
+      const check = CHECKS.find((c) => c.id === id);
+      assert.ok(check, `Check ${id} not found`);
+      assert.equal(check.severity, "error", `Check ${id} should be error severity`);
+    }
+  });
+});

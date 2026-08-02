@@ -112,6 +112,40 @@ every run, recording at minimum: `started_at`, `finished_at`, `workers`,
 `unique_count`, and a machine-readable `note` or outcome field sufficient to
 distinguish success, partial completion, and failure.
 
+
+### INV-INGEST-RUN-TELEMETRY — Every run must open and close with a terminal outcome
+
+A run MUST open with `outcome = 'running'` and MUST close with a terminal
+outcome (`completed`, `failed`, or `aborted`). A run whose `outcome` column
+is `NULL` is a crashed run, indistinguishable from a run that finished successfully
+without recording its result. (`DQ-RUN-FRESHNESS`, `DQ-RUN-CRASHED`)
+
+The `buildRunOpen` and `buildRunClose` functions in `src/ingest/telemetry.ts`
+provide the parameterised SQL for opening and closing runs. The scan worker
+MUST call `buildRunClose` in a `try/finally` block so that even an aborted
+or failed run records a terminal outcome. A run left in `outcome = 'running'`
+past `CRASHED_RUN_THRESHOLD_MINUTES` (240 minutes) is treated as a crash.
+
+The condition that made the 2026-07-28 outage invisible was exactly this:
+the run recorded `finished_at` but no `outcome`, so no automated check
+could distinguish it from a completed run.
+
+### INV-INGEST-DELIVERY — Every non-retired renderable row must have a delivery classification
+
+Every `font_files` row with `retired_at IS NULL` and a renderable format
+(`ttf`, `otf`, `woff`, `woff2`) MUST have a non-null `delivery` value
+(`cdn` | `raw_fallback` | `not_renderable`). A `NULL` delivery means the
+row has not been through the classification pipeline and cannot be safely
+served. (`DQ-DELIVERY-CLASSIFIED`)
+
+### INV-INGEST-RETIRED-EXCLUDED — Retired rows must never appear in the public catalog
+
+A row with `retired_at IS NOT NULL` MUST NOT appear in any public GraphQL
+query, font list, or detail view. The public visibility clauses from
+`src/graphql/schema/public-font-policy.ts` do not include a `retired_at IS
+NULL` guard as of 2026-08-02 — the tombstone path has not landed — but MUST
+add one when the tombstone path is active. (`DQ-RETIRED-EXCLUDED`)
+
 ---
 
 ## Enforcement map — Ingest pipeline and data quality
@@ -158,4 +192,25 @@ distinguish success, partial completion, and failure.
   [upsert logic](src/ingest/upsert.ts).
   Regression: [data-quality check suite](src/ingest/data-quality.test.ts)
   via `DQ-FRESHNESS`, and
+  [ingest-checks runner](scripts/ingest-checks.ts).
+
+- `INV-INGEST-RUN-TELEMETRY` — Production:
+  [telemetry](src/ingest/telemetry.ts) (`buildRunOpen`, `buildRunClose`,
+  `buildHealthQuery`, `evaluateHealth`).
+  Regression: [telemetry tests](src/ingest/telemetry.test.ts) and
+  [data-quality check suite](src/ingest/data-quality.test.ts)
+  via `DQ-RUN-FRESHNESS` and `DQ-RUN-CRASHED`, and
+  [ingest-checks runner](scripts/ingest-checks.ts).
+
+- `INV-INGEST-DELIVERY` — Production:
+  [CDN policy](src/ingest/cdn-policy.ts) (`classifyDelivery`).
+  Regression: [data-quality check suite](src/ingest/data-quality.test.ts)
+  via `DQ-DELIVERY-CLASSIFIED`, and
+  [ingest-checks runner](scripts/ingest-checks.ts).
+
+- `INV-INGEST-RETIRED-EXCLUDED` — Production:
+  [public-font-policy](src/graphql/schema/public-font-policy.ts) (must add
+  `retired_at IS NULL` clause when tombstone path lands).
+  Regression: [data-quality check suite](src/ingest/data-quality.test.ts)
+  via `DQ-RETIRED-EXCLUDED`, and
   [ingest-checks runner](scripts/ingest-checks.ts).

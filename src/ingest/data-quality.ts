@@ -51,6 +51,63 @@ const THRESHOLD_UNRESOLVED_LICENCE_CANDIDATES = 0;
 const THRESHOLD_DUPLICATE_SHA_ROWS = 0;
 
 // ---------------------------------------------------------------------------
+// New threshold constants — added 2026-08-02 (session 2, beads silofl-qiy.19)
+// ---------------------------------------------------------------------------
+
+/**
+ * DQ-RUN-FRESHNESS — max hours since the last completed run.
+ * Measured 2026-08-02: no completed run exists (last run outcome=NULL). The
+ * staleness is effectively infinite. Target: a completed run within 36 h.
+ * 36 h allows for weekend gaps and one retry.
+ */
+const THRESHOLD_STALE_RUN_HOURS = 36;
+
+/**
+ * DQ-RUN-CRASHED — collection_runs rows stuck in outcome='running'.
+ * Measured 2026-08-02: 0 rows with outcome='running' (the column was NULL).
+ * A run that was never closed before the column existed is caught by
+ * DQ-RUN-FRESHNESS (no completed run). Any future run stuck in 'running'
+ * past this threshold is a crash. 240 min = 4 h (well above any legitimate run).
+ */
+const THRESHOLD_CRASHED_RUN_MINUTES = 240;
+
+/**
+ * DQ-DELIVERY-CLASSIFIED — non-retired renderable rows with NULL delivery.
+ * Measured 2026-08-02 (session 2): 35,503 renderable non-retired rows have
+ * NULL delivery (delivery column was just added; no backfill has landed yet).
+ * Target: 0. This will fail until the delivery-classification backfill runs.
+ */
+const THRESHOLD_NULL_DELIVERY = 0;
+
+/**
+ * DQ-ASSET-VERIFIED — non-2xx rate among verified font_files rows.
+ * Measured 2026-08-02: 0 verified rows total — verified_at IS NULL everywhere.
+ * Rate is reported as 0 when no verifications exist (no data, not clean).
+ * Target: < 5% non-2xx once verification runs. The check will pass today
+ * trivially (no data); once asset-verify lands it will catch regressions.
+ * Threshold is stored as a fraction (0.05 = 5%).
+ */
+const THRESHOLD_NON2XX_RATE = 0.05;
+
+/**
+ * DQ-METADATA-PROVENANCE — share of non-retired rows with metadata_source
+ * null or 'filename' (inferred, unverified).
+ * Measured 2026-08-02: metadata_source IS NULL for all 35,509 rows — the
+ * column was just added, no backfill has landed. NULL is treated the same as
+ * 'filename'. Target: < 80% filename-or-null; today 100% will fail this check.
+ * Threshold expressed as a fraction (0.80 = 80 % ceiling).
+ */
+const THRESHOLD_FILENAME_PROVENANCE_RATE = 0.8;
+
+/**
+ * DQ-RETIRED-EXCLUDED — retired rows visible to the public catalog.
+ * Measured 2026-08-02: 0 retired rows (retired_at IS NULL everywhere).
+ * The check will pass today trivially and catch violations once the tombstone
+ * path is active. Target: always 0.
+ */
+const THRESHOLD_RETIRED_VISIBLE = 0;
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -419,6 +476,266 @@ export const CHECKS: readonly DataQualityCheck[] = [
           observed === 0
             ? "No duplicate SHA rows found."
             : `${observed} font_files row(s) share a SHA with at least one other row.`,
+      };
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // DQ-RUN-FRESHNESS — a completed run must exist within the expected window
+  // -------------------------------------------------------------------------
+  {
+    id: "DQ-RUN-FRESHNESS",
+    title: "A completed collection run exists within the freshness window",
+    severity: "error",
+    rationale:
+      "The pipeline stopped on 2026-07-28 and nothing said so. A run that " +
+      "finished_at but has NULL outcome is a crashed run, not a completed one. " +
+      "Measured 2026-08-02: last completed run = null (the one existing run has " +
+      "outcome=NULL). This check fails today by design — that is the exact " +
+      "condition it exists to catch. Threshold: " + THRESHOLD_STALE_RUN_HOURS + "h. " +
+      "Prevents INV-INGEST-FRESHNESS.",
+    sql:
+      "SELECT\n" +
+      "  MAX(CASE WHEN outcome = 'completed' THEN finished_at END) AS last_completed_at,\n" +
+      "  EXTRACT(EPOCH FROM (now() - MAX(CASE WHEN outcome = 'completed' THEN finished_at END))) / 3600\n" +
+      "    AS hours_since_completed\n" +
+      "FROM collection_runs",
+    evaluate(row) {
+      const threshold = THRESHOLD_STALE_RUN_HOURS;
+      const rawHours = row["hours_since_completed"];
+      const hours = rawHours === null || rawHours === undefined ? null : Number(rawHours);
+      const lastCompletedAt = row["last_completed_at"];
+      const isStale = hours === null || hours > threshold;
+      const observed =
+        hours === null
+          ? "never"
+          : `${Math.round(hours)}h ago`;
+      return {
+        status: isStale ? "fail" : "pass",
+        observed: typeof observed === "string" ? observed : String(observed),
+        threshold: `<= ${threshold}h`,
+        detail:
+          !isStale
+            ? `Last completed run was ${observed}, within the ${threshold}h window.`
+            : lastCompletedAt === null || lastCompletedAt === undefined
+            ? `No completed run has ever been recorded. The most recent run may have outcome=NULL (crashed before outcome was written).`
+            : `Last completed run was ${observed}, outside the ${threshold}h freshness window.`,
+      };
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // DQ-RUN-CRASHED — no collection_runs row stuck in outcome='running'
+  // -------------------------------------------------------------------------
+  {
+    id: "DQ-RUN-CRASHED",
+    title: "No collection_runs row is stuck in outcome='running'",
+    severity: "error",
+    rationale:
+      "A run that starts (outcome='running') and never closes is a crashed run. " +
+      "The 2026-07-28 run predates the outcome column, so outcome=NULL rather than " +
+      "'running'; that scenario is caught by DQ-RUN-FRESHNESS. This check catches " +
+      "any future run that opens correctly with outcome='running' and then hangs. " +
+      "Threshold: " + THRESHOLD_CRASHED_RUN_MINUTES + " minutes. A run stuck " +
+      "longer than this is a crash, not a slow run. " +
+      "Measured 2026-08-02: 0 rows with outcome='running'. " +
+      "Prevents INV-INGEST-FRESHNESS.",
+    sql:
+      "SELECT COUNT(*) FILTER (\n" +
+      "  WHERE outcome = 'running'\n" +
+      "    AND EXTRACT(EPOCH FROM (now() - started_at)) / 60 > " + THRESHOLD_CRASHED_RUN_MINUTES + "\n" +
+      ")::int AS crashed_run_count\n" +
+      "FROM collection_runs",
+    evaluate(row) {
+      const observed = num(row, "crashed_run_count");
+      const threshold = 0; // any crashed run is a failure
+      return {
+        status: observed <= threshold ? "pass" : "fail",
+        observed,
+        threshold,
+        detail:
+          observed === 0
+            ? `No collection_runs row has been stuck in outcome='running' for more than ${THRESHOLD_CRASHED_RUN_MINUTES} minutes.`
+            : `${observed} collection_runs row(s) have been in outcome='running' for more than ${THRESHOLD_CRASHED_RUN_MINUTES} minutes — treat as crashed.`,
+      };
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // DQ-DELIVERY-CLASSIFIED — no non-retired renderable row has NULL delivery
+  // -------------------------------------------------------------------------
+  {
+    id: "DQ-DELIVERY-CLASSIFIED",
+    title: "All non-retired renderable rows have a delivery classification",
+    severity: "error",
+    rationale:
+      "The delivery column (cdn | raw_fallback | not_renderable) determines how " +
+      "the public catalog serves each font. A NULL delivery means the row has " +
+      "never been through the classification pipeline. Measured 2026-08-02: " +
+      "35,503 renderable non-retired rows have NULL delivery — the column was " +
+      "just added and the backfill has not landed yet. This check will fail until " +
+      "the backfill runs. All 35,503 are publicly visible because retired_at IS NULL. " +
+      "Prevents INV-INGEST-RENDERABLE-HEALTH.",
+    sql:
+      "SELECT COUNT(*) FILTER (\n" +
+      "  WHERE retired_at IS NULL\n" +
+      "    AND format IN ('ttf', 'otf', 'woff', 'woff2')\n" +
+      "    AND delivery IS NULL\n" +
+      ")::int AS null_delivery_count\n" +
+      "FROM font_files",
+    evaluate(row) {
+      const observed = num(row, "null_delivery_count");
+      const threshold = THRESHOLD_NULL_DELIVERY;
+      return {
+        status: observed <= threshold ? "pass" : "fail",
+        observed,
+        threshold,
+        detail:
+          observed === 0
+            ? "All non-retired renderable rows have a delivery classification."
+            : `${observed} non-retired renderable row(s) have NULL delivery — these have not been through the classification pipeline.`,
+      };
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // DQ-ASSET-VERIFIED — non-2xx rate among verified rows stays under threshold
+  // -------------------------------------------------------------------------
+  {
+    id: "DQ-ASSET-VERIFIED",
+    title: "Asset verification non-2xx rate is within threshold",
+    severity: "error",
+    rationale:
+      "A font file that returns non-2xx from jsDelivr cannot be loaded by any " +
+      "browser. Causes include: files > 20 MiB (HTTP 403), paths that no longer " +
+      "exist on a branch-pinned URL (HTTP 404), and non-ASCII or space-containing " +
+      "URLs rejected before reaching the CDN (HTTP 400). " +
+      "Measured 2026-08-02: 0 verified rows — verified_at IS NULL everywhere. " +
+      "The check passes today (no data to fail on); once asset-verify lands it " +
+      "enforces the 5% ceiling. Threshold: 0.05 (5%). " +
+      "Prevents INV-INGEST-RENDERABLE-HEALTH.",
+    sql:
+      "SELECT\n" +
+      "  COUNT(*) FILTER (WHERE verified_at IS NOT NULL) AS verified_count,\n" +
+      "  COUNT(*) FILTER (WHERE verified_at IS NOT NULL AND verify_status >= 300) AS non2xx_count,\n" +
+      "  CASE WHEN COUNT(*) FILTER (WHERE verified_at IS NOT NULL) > 0\n" +
+      "       THEN (COUNT(*) FILTER (WHERE verified_at IS NOT NULL AND verify_status >= 300))::numeric\n" +
+      "            / (COUNT(*) FILTER (WHERE verified_at IS NOT NULL))::numeric\n" +
+      "       ELSE 0\n" +
+      "  END AS non2xx_rate\n" +
+      "FROM font_files\n" +
+      "WHERE retired_at IS NULL",
+    evaluate(row) {
+      const threshold = THRESHOLD_NON2XX_RATE;
+      const verifiedCount = num(row, "verified_count");
+      const non2xxCount = num(row, "non2xx_count");
+      const rate = verifiedCount === 0 ? 0 : non2xxCount / verifiedCount;
+      const ratePct = (rate * 100).toFixed(1);
+      return {
+        status: rate > threshold ? "fail" : "pass",
+        observed: verifiedCount === 0 ? "0 verified (no data)" : `${ratePct}% (${non2xxCount}/${verifiedCount})`,
+        threshold: `<= ${(threshold * 100).toFixed(0)}%`,
+        detail:
+          verifiedCount === 0
+            ? "No rows have been verified yet (verified_at IS NULL everywhere). Check passes trivially — will enforce once asset-verify runs."
+            : rate > threshold
+            ? `Non-2xx rate ${ratePct}% (${non2xxCount} of ${verifiedCount} verified rows) exceeds the ${(threshold * 100).toFixed(0)}% threshold.`
+            : `Non-2xx rate ${ratePct}% is within the ${(threshold * 100).toFixed(0)}% threshold.`,
+      };
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // DQ-METADATA-PROVENANCE — share of rows with metadata_source=filename|null
+  // -------------------------------------------------------------------------
+  {
+    id: "DQ-METADATA-PROVENANCE",
+    title: "Binary metadata covers most non-retired rows (filename-provenance rate under threshold)",
+    severity: "error",
+    rationale:
+      "Filename-inferred metadata (family_guess, weight_guess, style_guess, " +
+      "is_variable) is unreliable: 'Recursive' and a fork of Recursive look " +
+      "identical; is_variable misses any font not named with 'Variable' in the " +
+      "path. The metadata_source column tracks provenance: 'binary' means the " +
+      "name/OS2/post/fvar tables were read; 'filename' means the path was parsed. " +
+      "Measured 2026-08-02: metadata_source IS NULL for all 35,509 rows — the " +
+      "column was just added; NULL is treated as 'filename'. Target: < 80% " +
+      "filename-or-null. Today 100% will fail. " +
+      "Prevents INV-INGEST-RENDERABLE-HEALTH.",
+    sql:
+      "SELECT\n" +
+      "  COUNT(*) FILTER (WHERE retired_at IS NULL) AS total_live,\n" +
+      "  COUNT(*) FILTER (\n" +
+      "    WHERE retired_at IS NULL\n" +
+      "      AND (metadata_source IS NULL OR metadata_source = 'filename')\n" +
+      "  ) AS filename_count,\n" +
+      "  CASE WHEN COUNT(*) FILTER (WHERE retired_at IS NULL) > 0\n" +
+      "       THEN (COUNT(*) FILTER (\n" +
+      "               WHERE retired_at IS NULL\n" +
+      "                 AND (metadata_source IS NULL OR metadata_source = 'filename')\n" +
+      "             ))::numeric\n" +
+      "            / (COUNT(*) FILTER (WHERE retired_at IS NULL))::numeric\n" +
+      "       ELSE 0\n" +
+      "  END AS filename_rate\n" +
+      "FROM font_files",
+    evaluate(row) {
+      const threshold = THRESHOLD_FILENAME_PROVENANCE_RATE;
+      const totalLive = num(row, "total_live");
+      const filenameCount = num(row, "filename_count");
+      const rate = totalLive === 0 ? 0 : filenameCount / totalLive;
+      const ratePct = (rate * 100).toFixed(1);
+      return {
+        status: rate > threshold ? "fail" : "pass",
+        observed: `${ratePct}% (${filenameCount}/${totalLive} rows are filename/null provenance)`,
+        threshold: `<= ${(threshold * 100).toFixed(0)}%`,
+        detail:
+          totalLive === 0
+            ? "No live rows found."
+            : rate > threshold
+            ? `${ratePct}% of live rows have filename-or-null metadata provenance, exceeding the ${(threshold * 100).toFixed(0)}% ceiling. Binary metadata backfill has not landed.`
+            : `${ratePct}% of live rows have filename-or-null metadata provenance, within the ${(threshold * 100).toFixed(0)}% ceiling.`,
+      };
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // DQ-RETIRED-EXCLUDED — no retired row is publicly visible
+  // -------------------------------------------------------------------------
+  {
+    id: "DQ-RETIRED-EXCLUDED",
+    title: "No retired font_files row is publicly visible",
+    severity: "error",
+    rationale:
+      "A retired row (retired_at IS NOT NULL) is a tombstone: the file no longer " +
+      "exists at the upstream path. The public catalog policy requires retired_at " +
+      "IS NULL (INV-DATA-2). A retired row that leaks into the public catalog " +
+      "serves a broken URL or, worse, a URL that has been reassigned to different " +
+      "content. Measured 2026-08-02: 0 retired rows exist — the column was just " +
+      "added. The check passes today trivially and will catch violations once the " +
+      "tombstone path is active. Target: always 0. " +
+      "Prevents INV-INGEST-IDEMPOTENCY and INV-DATA-2.",
+    sql:
+      "SELECT COUNT(*) FILTER (\n" +
+      "  WHERE ff.retired_at IS NOT NULL\n" +
+      "    AND r.is_fontish\n" +
+      "    AND NOT r.is_fork\n" +
+      "    AND NOT r.is_archived\n" +
+      "    AND r.license_spdx IN ('OFL-1.0', 'OFL-1.1')\n" +
+      "    AND ff.format IN ('ttf', 'otf', 'woff', 'woff2')\n" +
+      ")::int AS retired_visible_count\n" +
+      "FROM font_files ff\n" +
+      "JOIN repos r ON r.id = ff.repo_id",
+    evaluate(row) {
+      const observed = num(row, "retired_visible_count");
+      const threshold = THRESHOLD_RETIRED_VISIBLE;
+      return {
+        status: observed <= threshold ? "pass" : "fail",
+        observed,
+        threshold,
+        detail:
+          observed === 0
+            ? "No retired rows are publicly visible under the public-font-policy clauses."
+            : `${observed} retired row(s) are publicly visible — they match the public catalog policy clauses but have retired_at IS NOT NULL. Tombstone the rows and exclude them from the public GraphQL query.`,
       };
     },
   },
