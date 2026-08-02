@@ -65,8 +65,8 @@
 # - linear.api_key  → use LINEAR_API_KEY env var instead
 # - github.token    → use GITHUB_TOKEN env var instead
 
-sync.remote: "git+https://github.com/lmist/sil-ofl.git"
+sync.remote: "git+https://github.com/oxfern/sil-ofl.git"
 export:
-    auto: true
-    path: issues.jsonl
-    interval: 1s
+  auto: true
+  path: issues.jsonl
+  interval: 1s
