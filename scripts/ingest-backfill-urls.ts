@@ -128,6 +128,7 @@ async function runBackfill(): Promise<void> {
 
   // ── Step 1: Plan all rewrites ────────────────────────────────────────────
   const plans: RowPlan[] = [];
+  const noChangePlans: RowPlan[] = [];
   const failures: RowPlanFailure[] = [];
   let noChangeCount = 0;
 
@@ -138,6 +139,8 @@ async function runBackfill(): Promise<void> {
         plans.push(result);
       } else {
         noChangeCount++;
+        // URL is already correct but delivery may still be NULL.
+        noChangePlans.push(result);
       }
     } else {
       failures.push(result);
@@ -175,9 +178,12 @@ async function runBackfill(): Promise<void> {
     return;
   }
 
-  if (plans.length === 0) {
-    log("No rows need rewriting. Exiting.");
+  if (plans.length === 0 && noChangePlans.length === 0) {
+    log("No rows need rewriting or delivery updates. Exiting.");
     return;
+  }
+  if (plans.length === 0) {
+    log("No URL rewrites needed — proceeding to delivery-only classification update.");
   }
 
   // ── Step 1 (apply): Backup originals ────────────────────────────────────
@@ -242,6 +248,26 @@ async function runBackfill(): Promise<void> {
   if (plans.length > BATCH_SIZE) process.stdout.write("\n");
   log(`Rewrote ${rewrittenTotal} rows.`);
 
+  // ── Step 3b: Set delivery for already-correct rows ───────────────────────
+  // These rows had no URL change but delivery/delivery_reason may be NULL.
+  // We write the same URLs back (idempotent) plus the computed classification.
+  const needsDeliveryUpdate = noChangePlans.filter((p) => p.delivery !== null);
+  let deliveryTotal = 0;
+  if (needsDeliveryUpdate.length > 0) {
+    logSection("Step 3b: Set delivery for already-correct rows");
+    for (let i = 0; i < needsDeliveryUpdate.length; i += BATCH_SIZE) {
+      const batch = needsDeliveryUpdate.slice(i, i + BATCH_SIZE);
+      const stmt = buildRewriteStatement(batch);
+      await sql.query(stmt.text, stmt.values as unknown[]);
+      deliveryTotal += batch.length;
+      if (needsDeliveryUpdate.length > BATCH_SIZE) {
+        process.stdout.write(`\r  Classified ${deliveryTotal}/${needsDeliveryUpdate.length}\u2026`);
+      }
+    }
+    if (needsDeliveryUpdate.length > BATCH_SIZE) process.stdout.write("\n");
+    log(`Set delivery for ${deliveryTotal} already-correct rows.`);
+  }
+
   // ── Step 4: Read back and report ─────────────────────────────────────────
   logSection("Step 4: Read-back verification");
 
@@ -268,6 +294,7 @@ async function runBackfill(): Promise<void> {
   console.log(`  Still branch-pinned:   ${v.still_branch_pinned}`);
   console.log(`  Has delivery value:    ${v.has_delivery}`);
   console.log(`  Rows changed:          ${rewrittenTotal}`);
+  console.log(`  Delivery-only updates: ${deliveryTotal}`);
   console.log(`  Could not plan:        ${failures.length}`);
 
   logSection("Done");

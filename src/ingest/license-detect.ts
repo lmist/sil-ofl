@@ -205,6 +205,13 @@ export const CANDIDATE_LICENCE_PATHS: readonly string[] = [
   "OFL.txt",
   "OFL.md",
   "OFL",
+  // Versioned OFL filenames — used by some repos that store the licence as OFL-1.1.txt
+  // or OFL-1.0.txt at the repo root (e.g. boontook-dev, bbaw-schoell, D-DIN-PRO).
+  // The filename is inherently version-specific; the detector still verifies the text
+  // before accepting, so a false positive requires both the improbable filename AND
+  // the detector threshold — that combination is safe.
+  "OFL-1.1.txt",
+  "OFL-1.0.txt",
   // Generic licence filenames
   "LICENSE",
   "LICENSE.txt",

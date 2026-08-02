@@ -336,17 +336,27 @@ async function main(): Promise<void> {
   console.log(`ingest-metadata-backfill — ${dryRun ? "DRY RUN" : "APPLY"} | limit=${limit} concurrency=${concurrency}`);
   console.log();
 
-  // Load candidate rows (null metadata_source = not yet processed)
+  // Load candidate rows spread evenly across the four formats.
+  // Each format contributes up to limit/4 rows (with any remainder going to
+  // woff2) so we never burn the whole budget on a single format cluster.
+  const perFmt = Math.ceil(limit / 4);
   const rows = (await sql`
-    SELECT
-      id, repo_id, path, format,
-      raw_url, cdn_url,
-      family_guess, subfamily_guess, weight_guess, style_guess, is_variable
-    FROM font_files
-    WHERE metadata_source IS NULL
-      AND format IN ('ttf', 'otf', 'woff', 'woff2')
-      AND (raw_url IS NOT NULL OR cdn_url IS NOT NULL)
-    ORDER BY id
+    WITH ranked AS (
+      SELECT
+        id, repo_id, path, format,
+        raw_url, cdn_url,
+        family_guess, subfamily_guess, weight_guess, style_guess, is_variable,
+        ROW_NUMBER() OVER (PARTITION BY format ORDER BY id) AS rn
+      FROM font_files
+      WHERE metadata_source IS NULL
+        AND format IN ('ttf', 'otf', 'woff', 'woff2')
+        AND (raw_url IS NOT NULL OR cdn_url IS NOT NULL)
+    )
+    SELECT id, repo_id, path, format, raw_url, cdn_url,
+           family_guess, subfamily_guess, weight_guess, style_guess, is_variable
+    FROM ranked
+    WHERE rn <= ${perFmt}
+    ORDER BY rn, format
     LIMIT ${limit}
   `) as FontFileRow[];
 

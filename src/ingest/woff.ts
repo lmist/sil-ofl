@@ -330,8 +330,9 @@ export function decompressWoff2(buffer: ArrayBuffer | Uint8Array): Uint8Array | 
 
     interface Woff2TableEntry {
       tag: string;
-      transformVersion: number; // 0 = no transform, 3 = glyf/loca null-transform
-      origLength: number;       // uncompressed size
+      transformVersion: number;
+      origLength: number;   // original uncompressed sfnt table size
+      streamLength: number; // bytes this table occupies in the Brotli stream
     }
 
     const entries: Woff2TableEntry[] = [];
@@ -362,38 +363,46 @@ export function decompressWoff2(buffer: ArrayBuffer | Uint8Array): Uint8Array | 
       if (!origResult) return null;
       dirPos += origResult.bytesRead;
 
-      // transformLength is present only when transformVersion != 0 AND
-      // the tag is NOT glyf or loca (which use the WOFF2 glyph transform).
-      // For glyf/loca: transformVersion=0 means "with glyph transform" (the
-      // normal WOFF2 case); transformVersion=3 means "null transform" (stored
-      // as-is). For other tables: transformVersion=0 means no transform;
-      // transformVersion>0 means a transform length follows (currently unused
-      // in spec v1.0 for non-glyph tables).
+      // Per WOFF2 spec §5.2, the transformLength field is present when:
+      //   • glyf/loca with transformVersion=0 (standard WOFF2 glyph transform)
+      //   • glyf/loca with transformVersion=3 (null/passthrough transform)
+      //   • any other table with transformVersion != 0
       //
-      // For our purposes: we only care about name/OS·2/post/fvar. These are
-      // always stored with transformVersion=0 (no transform). We skip the
-      // transform-length field for any other case.
+      // For tables we need (name, OS/2, post, fvar), transformVersion is always
+      // 0 (no transform), so no transformLength field is present for them.
+      // We still must read transformLength for glyf/loca to keep dirPos correct.
       let transformLength: number | undefined;
       const isGlyfOrLoca = tag === "glyf" || tag === "loca";
-      if (!isGlyfOrLoca && transformVersion !== 0) {
-        const tfResult = readUIntBase128(view, dirPos);
-        if (!tfResult) return null;
-        dirPos += tfResult.bytesRead;
-        transformLength = tfResult.value;
-      }
-      if (isGlyfOrLoca && transformVersion === 3) {
-        // Null transform: treat like any untransformed table
-        // (transformLength field is present)
+      if (isGlyfOrLoca) {
+        // glyf/loca: transformLength field is present for both tv=0 (with transform)
+        // and tv=3 (null/passthrough). tv=0 = stream has transformed data of size
+        // transformLength; tv=3 = stream has raw data of size origLength.
+        if (transformVersion === 0 || transformVersion === 3) {
+          const tfResult = readUIntBase128(view, dirPos);
+          if (!tfResult) return null;
+          dirPos += tfResult.bytesRead;
+          transformLength = tfResult.value;
+        }
+      } else if (transformVersion !== 0) {
+        // Non-glyf/loca with non-zero transform: transformLength field present
         const tfResult = readUIntBase128(view, dirPos);
         if (!tfResult) return null;
         dirPos += tfResult.bytesRead;
         transformLength = tfResult.value;
       }
 
+      // Stream advance: for glyf/loca tv=0, the stream holds transformLength bytes
+      // of transformed data (not origLength). For all other cases, it holds origLength.
+      const streamLength =
+        (isGlyfOrLoca && transformVersion === 0 && transformLength !== undefined)
+          ? transformLength
+          : origResult.value;
+
       entries.push({
         tag,
-        transformVersion: isGlyfOrLoca ? (transformVersion === 3 ? 0 : 1) : transformVersion,
-        origLength: transformLength ?? origResult.value,
+        transformVersion,
+        origLength: origResult.value,
+        streamLength,
       });
     }
 
@@ -405,13 +414,14 @@ export function decompressWoff2(buffer: ArrayBuffer | Uint8Array): Uint8Array | 
     const decompressed = brotliDecompressSync(brotliData);
 
     // Walk the decompressed stream, assigning offsets to each table
-    // Tables are stored in directory order, each 4-byte-padded
+    // WOFF2 tables are stored contiguously — NO inter-table padding in
+    // the Brotli stream. Padding is only applied in the sfnt output below.
     const tableOffsets = new Map<string, { offset: number; length: number }>();
     let streamOffset = 0;
     for (const entry of entries) {
       tableOffsets.set(entry.tag, { offset: streamOffset, length: entry.origLength });
-      // Advance by origLength, padded to 4-byte boundary
-      streamOffset += (entry.origLength + 3) & ~3;
+      // No padding: advance by the exact number of bytes in the Brotli stream
+      streamOffset += entry.streamLength;
     }
 
     // Extract only the metadata tables we need
