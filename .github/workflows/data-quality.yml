@@ -72,11 +72,16 @@ jobs:
     name: Live data-quality checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Gate on the secret being present. Forks and unrelated PRs from contributors
-    # who don't have the secret should not fail on this job. The offline unit
-    # tests in lint-and-unit are the invariant gate; this job is an operator
-    # dashboard. See the top-of-file comment for the full rationale.
-    if: ${{ secrets.DATABASE_URL != '' }}
+    # Forks and contributor PRs without the secret must not fail here. The
+    # offline unit tests in lint-and-unit are the invariant gate; this job is an
+    # operator dashboard. See the top-of-file comment for the full rationale.
+    #
+    # The gate is at the STEP level, not here. `secrets` is not an available
+    # context for a job-level `if` (only github, needs, vars and inputs are), so
+    # `if: ${{ secrets.DATABASE_URL != '' }}` evaluates against an empty context
+    # and skips the job unconditionally — the job would look configured while
+    # never actually running, which is precisely the silent pass this file's
+    # top comment argues against.
     # The suite currently fails (6 error-severity checks, all legitimately).
     # continue-on-error: true means the live database step cannot be the sole
     # reason main goes red. Remove this line once the backfill lands and all
@@ -95,7 +100,14 @@ jobs:
       - name: Run data-quality suite against live database
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: bun scripts/ingest-checks.ts
+        run: |
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "DATABASE_URL is not configured for this repository — skipping"
+            echo "the live suite. This is expected on forks and on contributor"
+            echo "PRs. The offline gate in lint-and-unit still ran."
+            exit 0
+          fi
+          bun scripts/ingest-checks.ts
         # The script exits non-zero when any error-severity check fails —
         # that exit code is what continue-on-error captures as a visible
         # failure in the Actions UI without blocking the branch.
